@@ -1,0 +1,10 @@
+feat: implement data model and storage service
+
+This commit adds a robust data structure and storage mechanism for the thought chain extension:
+- Create data models for ThoughtNode and ThoughtChain
+- Implement StorageService with Promise-based API
+- Update background script to use the new storage service
+- Enhance popup UI to display recent thought chains
+- Fix message communication between popup and background
+
+The extension now properly stores and displays thought chains, allowing users to add pages to specific chains and view their recent activity. 
