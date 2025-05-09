@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>生成图标</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { border: 1px solid #ccc; margin: 10px; }
+    .icon-container { display: flex; flex-wrap: wrap; }
+    .icon-item { margin: 10px; text-align: center; }
+    button { padding: 10px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>思维链图标生成器</h1>
+  <div class="icon-container">
+    <div class="icon-item">
+      <h3>16x16</h3>
+      <canvas id="icon16" width="16" height="16"></canvas>
+      <div>
+        <a id="download16" download="icon16.png" href="#">下载16x16图标</a>
+      </div>
+    </div>
+    <div class="icon-item">
+      <h3>48x48</h3>
+      <canvas id="icon48" width="48" height="48"></canvas>
+      <div>
+        <a id="download48" download="icon48.png" href="#">下载48x48图标</a>
+      </div>
+    </div>
+    <div class="icon-item">
+      <h3>128x128</h3>
+      <canvas id="icon128" width="128" height="128"></canvas>
+      <div>
+        <a id="download128" download="icon128.png" href="#">下载128x128图标</a>
+      </div>
+    </div>
+  </div>
+  <button id="generateBtn">重新生成图标</button>
+
+  <script>
+    function drawIcon(canvasId, size) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      
+      // 渐变背景
+      const gradient = ctx.createLinearGradient(0, 0, size, size);
+      gradient.addColorStop(0, '#4285f4'); // Google蓝
+      gradient.addColorStop(1, '#34a853'); // Google绿
+      
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      
+      // 添加简单的节点和连接线图案
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = size * 0.1;
+      
+      // 绘制三个节点和连接线
+      const radius = size * 0.15;
+      const margin = size * 0.2;
+      
+      // 节点1
+      ctx.beginPath();
+      ctx.arc(margin, margin, radius, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fill();
+      
+      // 节点2
+      ctx.beginPath();
+      ctx.arc(size - margin, margin, radius, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // 节点3
+      ctx.beginPath();
+      ctx.arc(size / 2, size - margin, radius, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // 连接线
+      ctx.beginPath();
+      ctx.moveTo(margin + radius, margin);
+      ctx.lineTo(size - margin - radius, margin);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(margin, margin + radius);
+      ctx.lineTo(size / 2 - radius/2, size - margin - radius);
+      ctx.stroke();
+      
+      ctx.beginPath();
+      ctx.moveTo(size - margin, margin + radius);
+      ctx.lineTo(size / 2 + radius/2, size - margin - radius);
+      ctx.stroke();
+      
+      // 更新下载链接
+      const downloadLink = document.getElementById('download' + size);
+      downloadLink.href = canvas.toDataURL('image/png');
+    }
+    
+    function generateIcons() {
+      drawIcon('icon16', 16);
+      drawIcon('icon48', 48);
+      drawIcon('icon128', 128);
+    }
+    
+    // 初始生成
+    generateIcons();
+    
+    // 重新生成按钮
+    document.getElementById('generateBtn').addEventListener('click', generateIcons);
+  </script>
+</body>
+</html> 

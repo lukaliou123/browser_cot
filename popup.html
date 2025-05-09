@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>思维链记录</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>思维链记录</h1>
+    </header>
+    
+    <main>
+      <div class="current-page">
+        <h2>当前页面</h2>
+        <div id="current-title" class="page-title"></div>
+        <div id="current-url" class="page-url"></div>
+      </div>
+      
+      <div class="actions">
+        <button id="captureBtn" class="btn primary">添加到思维链</button>
+      </div>
+      
+      <div class="chains">
+        <h2>最近思维链</h2>
+        <div id="recent-chains" class="chains-list">
+          <!-- 这里将动态显示最近的思维链 -->
+          <div class="empty-state">暂无记录</div>
+        </div>
+        <a href="#" id="viewAllBtn" class="view-all">查看所有</a>
+      </div>
+    </main>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html> 
