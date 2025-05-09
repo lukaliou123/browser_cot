@@ -1,0 +1,23 @@
+# 忽略图片文件(自动生成的)
+images/*.png
+
+# 忽略node模块(如果之后使用)
+node_modules/
+
+# 忽略构建目录
+dist/
+build/
+
+# 忽略IDE文件
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+
+# 忽略临时文件
+*.log
+*.tmp 
