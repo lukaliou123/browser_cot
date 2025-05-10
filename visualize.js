@@ -10,6 +10,8 @@ let currentChainId = null;
 let svg = null;
 let simulation = null;
 let chainSelector = null;
+let currentEditingNode = null; // 当前正在编辑的节点
+let selectedNodeForReorder = null; // 当前选中用于重排序的节点
 
 // DOM 元素
 let width = 0;
@@ -22,8 +24,14 @@ const colors = {
   nodeHover: '#ea4335',
   nodeSelected: '#34a853',
   link: '#cccccc',
-  text: '#333333'
+  text: '#333333',
+  delete: '#db4437',
+  reorder: '#fbbc05' // 重排序模式颜色
 };
+
+// 模式设置
+let editMode = false;
+let reorderMode = false;
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -52,7 +60,154 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderVisualization(selectedChainId);
     }
   });
+  
+  // 编辑模式切换按钮
+  const editModeBtn = document.getElementById('edit-mode-toggle');
+  editModeBtn.addEventListener('click', () => {
+    // 如果重排序模式开启，先关闭
+    if (reorderMode) {
+      reorderMode = false;
+      document.getElementById('reorder-mode-toggle').textContent = '进入重排序模式';
+      document.getElementById('reorder-mode-toggle').classList.remove('active');
+      clearReorderSelection();
+    }
+    
+    editMode = !editMode;
+    editModeBtn.textContent = editMode ? '退出编辑模式' : '进入编辑模式';
+    editModeBtn.classList.toggle('active', editMode);
+    
+    // 重新渲染以应用新的编辑模式
+    if (currentChainId) {
+      renderVisualization(currentChainId);
+    }
+  });
+  
+  // 重排序模式切换按钮
+  const reorderModeBtn = document.getElementById('reorder-mode-toggle');
+  reorderModeBtn.addEventListener('click', () => {
+    // 如果编辑模式开启，先关闭
+    if (editMode) {
+      editMode = false;
+      document.getElementById('edit-mode-toggle').textContent = '进入编辑模式';
+      document.getElementById('edit-mode-toggle').classList.remove('active');
+    }
+    
+    reorderMode = !reorderMode;
+    reorderModeBtn.textContent = reorderMode ? '退出重排序模式' : '进入重排序模式';
+    reorderModeBtn.classList.toggle('active', reorderMode);
+    
+    // 清除当前选择
+    clearReorderSelection();
+    
+    // 如果进入重排序模式，显示帮助信息
+    if (reorderMode) {
+      showReorderHelp();
+    }
+    
+    // 重新渲染
+    if (currentChainId) {
+      renderVisualization(currentChainId);
+    }
+  });
+  
+  // 初始化笔记编辑对话框
+  initNoteEditModal();
+  
+  // 初始化重排序帮助对话框
+  initReorderHelpModal();
 });
+
+/**
+ * 初始化笔记编辑对话框
+ */
+function initNoteEditModal() {
+  const modal = document.getElementById('note-edit-modal');
+  const closeBtn = modal.querySelector('.modal-close');
+  const cancelBtn = modal.querySelector('.btn-cancel');
+  const saveBtn = modal.querySelector('.btn-save');
+  
+  // 关闭按钮点击事件
+  closeBtn.addEventListener('click', closeNoteEditModal);
+  
+  // 取消按钮点击事件
+  cancelBtn.addEventListener('click', closeNoteEditModal);
+  
+  // 保存按钮点击事件
+  saveBtn.addEventListener('click', saveNoteChanges);
+  
+  // 点击模态框背景关闭
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      closeNoteEditModal();
+    }
+  });
+}
+
+/**
+ * 打开笔记编辑对话框
+ * @param {Object} node - 节点数据
+ */
+function openNoteEditModal(node) {
+  const modal = document.getElementById('note-edit-modal');
+  const textarea = document.getElementById('note-content');
+  
+  // 设置当前编辑节点
+  currentEditingNode = node;
+  
+  // 设置文本域的初始值
+  textarea.value = node.notes || '';
+  
+  // 显示模态框
+  modal.style.display = 'flex';
+  
+  // 聚焦文本域
+  textarea.focus();
+}
+
+/**
+ * 关闭笔记编辑对话框
+ */
+function closeNoteEditModal() {
+  const modal = document.getElementById('note-edit-modal');
+  modal.style.display = 'none';
+  currentEditingNode = null;
+}
+
+/**
+ * 保存笔记更改
+ */
+async function saveNoteChanges() {
+  if (!currentEditingNode || !currentChainId) return;
+  
+  const textarea = document.getElementById('note-content');
+  const newNotes = textarea.value.trim();
+  
+  try {
+    // 调用存储服务更新笔记
+    const success = await storageService.updateNodeNotes(
+      currentEditingNode.id,
+      currentChainId,
+      newNotes
+    );
+    
+    if (success) {
+      // 更新当前节点的笔记
+      currentEditingNode.notes = newNotes;
+      
+      // 关闭模态框
+      closeNoteEditModal();
+      
+      // 重新渲染可视化
+      renderVisualization(currentChainId);
+    } else {
+      console.error('保存笔记失败');
+      alert('保存笔记失败，请重试');
+    }
+  } catch (error) {
+    console.error('保存笔记时出错:', error);
+    alert('保存笔记时出错，请重试');
+  }
+}
 
 /**
  * 更新可视化区域尺寸
@@ -122,6 +277,19 @@ async function loadChains() {
 }
 
 /**
+ * 清除重排序选择
+ */
+function clearReorderSelection() {
+  selectedNodeForReorder = null;
+  
+  // 重置所有节点颜色
+  if (svg) {
+    svg.selectAll('circle.node')
+      .attr('fill', colors.node);
+  }
+}
+
+/**
  * 渲染思维链可视化
  * @param {string} chainId - 思维链 ID
  */
@@ -144,13 +312,17 @@ async function renderVisualization(chainId) {
     // 清空现有可视化
     container.innerHTML = '';
     
+    // 清除重排序选择
+    clearReorderSelection();
+    
     // 准备数据
-    const nodes = chain.nodes.map(node => ({
+    const nodes = chain.nodes.map((node, index) => ({
       id: node.id,
       title: node.title,
       url: node.url,
       timestamp: node.timestamp,
-      notes: node.notes
+      notes: node.notes,
+      position: index // 添加位置索引
     }));
     
     // 创建节点间的连接（按时间顺序连接）
@@ -194,32 +366,123 @@ async function renderVisualization(chainId) {
       .attr('marker-end', 'url(#arrowhead)');
     
     // 创建节点
-    const node = svg.append('g')
-      .selectAll('circle')
+    const nodeGroup = svg.append('g')
+      .selectAll('g')
       .data(nodes)
       .enter()
-      .append('circle')
+      .append('g')
+      .attr('class', 'node-group');
+    
+    // 添加圆形节点
+    const node = nodeGroup.append('circle')
       .attr('r', 10)
       .attr('fill', colors.node)
+      .attr('class', 'node')
       .on('mouseover', function(event, d) {
-        d3.select(this).attr('fill', colors.nodeHover);
+        if (!reorderMode || !selectedNodeForReorder || selectedNodeForReorder.id === d.id) {
+          d3.select(this).attr('fill', colors.nodeHover);
+        }
         showTooltip(d, event);
       })
-      .on('mouseout', function() {
-        d3.select(this).attr('fill', colors.node);
+      .on('mouseout', function(event, d) {
+        if (reorderMode && selectedNodeForReorder && selectedNodeForReorder.id === d.id) {
+          d3.select(this).attr('fill', colors.selected);
+        } else {
+          d3.select(this).attr('fill', colors.node);
+        }
         hideTooltip();
       })
       .on('click', function(event, d) {
-        // 打开节点对应的 URL
-        window.open(d.url, '_blank');
+        if (!editMode && !reorderMode) {
+          // 普通模式：打开节点对应的 URL
+          window.open(d.url, '_blank');
+        } else if (editMode) {
+          // 编辑模式：打开笔记编辑对话框
+          openNoteEditModal(d);
+        } else if (reorderMode) {
+          // 重排序模式：选择节点或移动节点
+          handleReorderNodeClick(d);
+        }
       });
     
+    // 如果在编辑模式下，添加删除和编辑按钮
+    if (editMode) {
+      // 添加删除按钮
+      nodeGroup.append('circle')
+        .attr('r', 6)
+        .attr('cx', 14)
+        .attr('cy', -14)
+        .attr('fill', colors.delete)
+        .attr('class', 'delete-btn')
+        .style('cursor', 'pointer')
+        .on('mouseover', function() {
+          d3.select(this).attr('r', 8);
+        })
+        .on('mouseout', function() {
+          d3.select(this).attr('r', 6);
+        })
+        .on('click', function(event, d) {
+          event.stopPropagation();
+          deleteNode(d.id);
+        });
+      
+      // 添加删除按钮中的 X 符号
+      nodeGroup.append('text')
+        .attr('x', 14)
+        .attr('y', -14)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', 8)
+        .attr('fill', 'white')
+        .attr('pointer-events', 'none')
+        .text('×');
+      
+      // 添加编辑按钮
+      nodeGroup.append('circle')
+        .attr('r', 6)
+        .attr('cx', -14)
+        .attr('cy', -14)
+        .attr('fill', '#34a853') // 绿色
+        .attr('class', 'edit-btn')
+        .style('cursor', 'pointer')
+        .on('mouseover', function() {
+          d3.select(this).attr('r', 8);
+        })
+        .on('mouseout', function() {
+          d3.select(this).attr('r', 6);
+        })
+        .on('click', function(event, d) {
+          event.stopPropagation();
+          openNoteEditModal(d);
+        });
+      
+      // 添加编辑按钮中的铅笔符号
+      nodeGroup.append('text')
+        .attr('x', -14)
+        .attr('y', -14)
+        .attr('text-anchor', 'middle')
+        .attr('dominant-baseline', 'central')
+        .attr('font-size', 8)
+        .attr('fill', 'white')
+        .attr('pointer-events', 'none')
+        .text('✎');
+    }
+    
+    // 在重排序模式下，显示位置编号
+    if (reorderMode) {
+      nodeGroup.append('text')
+        .text(d => d.position + 1) // 显示从1开始的位置索引
+        .attr('class', 'position-label')
+        .attr('x', 0)
+        .attr('y', -20)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 12)
+        .attr('font-weight', 'bold')
+        .attr('fill', colors.reorder);
+    }
+    
     // 创建节点标签
-    const label = svg.append('g')
-      .selectAll('text')
-      .data(nodes)
-      .enter()
-      .append('text')
+    const label = nodeGroup.append('text')
       .text(d => truncateText(d.title, 20))
       .attr('font-size', 12)
       .attr('dx', 15)
@@ -239,19 +502,13 @@ async function renderVisualization(chainId) {
           .attr('x2', d => d.target.x)
           .attr('y2', d => d.target.y);
         
-        // 更新节点位置
-        node
-          .attr('cx', d => d.x)
-          .attr('cy', d => d.y);
-        
-        // 更新标签位置
-        label
-          .attr('x', d => d.x)
-          .attr('y', d => d.y);
+        // 更新节点组位置
+        nodeGroup
+          .attr('transform', d => `translate(${d.x}, ${d.y})`);
       });
     
     // 添加拖拽行为
-    node.call(d3.drag()
+    nodeGroup.call(d3.drag()
       .on('start', dragstarted)
       .on('drag', dragged)
       .on('end', dragended));
@@ -323,4 +580,114 @@ function dragended(event, d) {
   if (!event.active) simulation.alphaTarget(0);
   d.fx = null;
   d.fy = null;
+}
+
+/**
+ * 删除节点并刷新可视化
+ * @param {string} nodeId - 要删除的节点ID
+ */
+async function deleteNode(nodeId) {
+  try {
+    if (!currentChainId) return;
+    
+    // 显示确认对话框
+    if (!confirm('确定要删除这个节点吗？此操作不可撤销。')) {
+      return;
+    }
+    
+    // 调用存储服务删除节点
+    const success = await storageService.removeNodeFromChain(nodeId, currentChainId);
+    
+    if (success) {
+      // 重新加载思维链列表和当前思维链
+      await loadChains();
+      renderVisualization(currentChainId);
+    } else {
+      alert('删除节点失败');
+    }
+  } catch (error) {
+    console.error('删除节点时出错:', error);
+    alert('删除节点时发生错误');
+  }
+}
+
+/**
+ * 处理重排序模式下的节点点击
+ * @param {Object} node - 被点击的节点
+ */
+async function handleReorderNodeClick(node) {
+  // 如果没有选中的节点，则选中当前节点
+  if (!selectedNodeForReorder) {
+    selectedNodeForReorder = node;
+    
+    // 将选中节点标记为选中状态
+    svg.selectAll('circle.node')
+      .filter(d => d.id === node.id)
+      .attr('fill', colors.selected);
+    
+    return;
+  }
+  
+  // 如果点击的是已选中的节点，取消选择
+  if (selectedNodeForReorder.id === node.id) {
+    clearReorderSelection();
+    return;
+  }
+  
+  // 移动节点到新的位置
+  try {
+    const success = await storageService.reorderNodes(
+      currentChainId,
+      selectedNodeForReorder.id,
+      node.position
+    );
+    
+    if (success) {
+      // 清除选择
+      clearReorderSelection();
+      
+      // 重新渲染可视化
+      renderVisualization(currentChainId);
+    } else {
+      console.error('重排序失败');
+      alert('重排序失败，请重试');
+    }
+  } catch (error) {
+    console.error('重排序时出错:', error);
+    alert('重排序时出错，请重试');
+  }
+}
+
+/**
+ * 初始化重排序帮助对话框
+ */
+function initReorderHelpModal() {
+  const modal = document.getElementById('reorder-help-modal');
+  const closeBtn = modal.querySelector('.modal-close');
+  const gotItBtn = document.getElementById('reorder-help-got-it');
+  
+  // 关闭按钮点击事件
+  closeBtn.addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+  
+  // 知道了按钮点击事件
+  gotItBtn.addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+  
+  // 点击模态框背景关闭
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) {
+      modal.style.display = 'none';
+    }
+  });
+}
+
+/**
+ * 显示重排序帮助
+ */
+function showReorderHelp() {
+  const modal = document.getElementById('reorder-help-modal');
+  modal.style.display = 'flex';
 } 

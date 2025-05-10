@@ -36,6 +36,8 @@
       margin-bottom: 20px;
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
     }
     
     .controls label {
@@ -49,6 +51,38 @@
       border: 1px solid #ddd;
       border-radius: 4px;
       font-size: 14px;
+      min-width: 200px;
+    }
+    
+    .edit-controls {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 15px;
+      gap: 20px;
+    }
+    
+    .edit-controls > div {
+      flex: 1;
+    }
+    
+    .btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .btn:hover {
+      background-color: #3367d6;
+    }
+    
+    .btn.active {
+      background-color: #ea4335;
     }
     
     #visualization {
@@ -127,6 +161,101 @@
     .back-btn:hover {
       text-decoration: underline;
     }
+    
+    .note {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    
+    .delete-btn {
+      opacity: 0.8;
+      transition: opacity 0.2s;
+    }
+    
+    .delete-btn:hover {
+      opacity: 1;
+    }
+    
+    /* 笔记编辑对话框样式 */
+    #note-edit-modal,
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .modal-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      width: 80%;
+      max-width: 500px;
+    }
+    
+    .modal-header {
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-header h3 {
+      margin: 0;
+      font-size: 18px;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: #666;
+    }
+    
+    .modal-body textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: inherit;
+      resize: vertical;
+      margin-bottom: 15px;
+    }
+    
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    
+    .modal-footer button {
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: none;
+    }
+    
+    .btn-cancel {
+      background-color: #f5f5f5;
+      color: #333;
+    }
+    
+    .btn-save {
+      background-color: #4285f4;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -139,9 +268,61 @@
       <select id="chain-selector"></select>
     </div>
     
+    <div class="edit-controls">
+      <div>
+        <button id="edit-mode-toggle" class="btn">进入编辑模式</button>
+        <div class="note">编辑模式下可编辑笔记和删除节点</div>
+      </div>
+      <div>
+        <button id="reorder-mode-toggle" class="btn">进入重排序模式</button>
+        <div class="note">重排序模式下可调整节点顺序</div>
+      </div>
+    </div>
+    
     <div id="visualization"></div>
     <div id="message">正在加载...</div>
     <div id="tooltip"></div>
   </div>
+  
+  <!-- 笔记编辑对话框 -->
+  <div id="note-edit-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>编辑笔记</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="note-content" placeholder="在此输入笔记内容..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel">取消</button>
+        <button class="btn-save">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 重排序帮助弹窗 -->
+  <div id="reorder-help-modal" class="modal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>如何重排序节点</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ol style="padding-left: 20px; margin-bottom: 15px;">
+          <li>进入重排序模式</li>
+          <li>首先点击您想要移动的节点(将变为绿色)</li>
+          <li>然后点击目标位置的节点</li>
+          <li>您选择的节点将会移动到目标节点的位置</li>
+        </ol>
+        <p>提示: 每个节点上的数字表示其当前位置。点击相同节点可取消选择。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-save" id="reorder-help-got-it">知道了</button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="visualize.js" type="module"></script>
 </body>
 </html> 

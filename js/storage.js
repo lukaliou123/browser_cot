@@ -248,6 +248,70 @@ class StorageService {
       .sort((a, b) => b.node.timestamp - a.node.timestamp)
       .slice(0, limit);
   }
+  
+  /**
+   * 更新节点笔记
+   * @param {string} nodeId - 节点ID
+   * @param {string} chainId - 思维链ID
+   * @param {string} notes - 新的笔记内容
+   * @returns {Promise<boolean>} 操作结果Promise
+   */
+  async updateNodeNotes(nodeId, chainId, notes) {
+    const chain = await this.getChainById(chainId);
+    if (!chain) return false;
+    
+    const nodeIndex = chain.nodes.findIndex(node => node.id === nodeId);
+    if (nodeIndex === -1) return false;
+    
+    chain.nodes[nodeIndex].notes = notes;
+    chain.updatedAt = Date.now();
+    
+    const chains = await this.getAllChains();
+    const chainIndex = chains.findIndex(c => c.id === chainId);
+    chains[chainIndex] = chain;
+    
+    await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
+    return true;
+  }
+  
+  /**
+   * 重排序思维链中的节点
+   * @param {string} chainId - 思维链ID
+   * @param {string} nodeId - 要移动的节点ID
+   * @param {number} newPosition - 新位置索引
+   * @returns {Promise<boolean>} 操作结果Promise
+   */
+  async reorderNodes(chainId, nodeId, newPosition) {
+    const chain = await this.getChainById(chainId);
+    if (!chain) return false;
+    
+    const nodeIndex = chain.nodes.findIndex(node => node.id === nodeId);
+    if (nodeIndex === -1) return false;
+    
+    // 边界检查
+    if (newPosition < 0) newPosition = 0;
+    if (newPosition >= chain.nodes.length) newPosition = chain.nodes.length - 1;
+    
+    // 如果位置相同则不需要变动
+    if (nodeIndex === newPosition) return true;
+    
+    // 从数组中移除节点
+    const node = chain.nodes.splice(nodeIndex, 1)[0];
+    
+    // 在新位置插入节点
+    chain.nodes.splice(newPosition, 0, node);
+    
+    // 更新时间戳
+    chain.updatedAt = Date.now();
+    
+    // 保存更改
+    const chains = await this.getAllChains();
+    const chainIndex = chains.findIndex(c => c.id === chainId);
+    chains[chainIndex] = chain;
+    
+    await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
+    return true;
+  }
 }
 
 // 导出一个单例实例
