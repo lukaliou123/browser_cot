@@ -12,6 +12,7 @@ let simulation = null;
 let chainSelector = null;
 let currentEditingNode = null; // 当前正在编辑的节点
 let selectedNodeForReorder = null; // 当前选中用于重排序的节点
+let currentChainData = null; // 当前思维链数据，用于导出
 
 // DOM 元素
 let width = 0;
@@ -44,6 +45,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // 加载可用思维链
   await loadChains();
+  
+  // 检查URL参数是否有指定的思维链
+  await checkURLParams();
   
   // 监听窗口大小变化
   window.addEventListener('resize', () => {
@@ -115,7 +119,197 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // 初始化重排序帮助对话框
   initReorderHelpModal();
+  
+  // 初始化导出功能
+  initExportFeature();
 });
+
+/**
+ * 检查URL参数是否有指定的思维链
+ */
+async function checkURLParams() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const chainId = urlParams.get('chain');
+  
+  if (chainId) {
+    // 检查指定的思维链是否存在
+    const chain = await storageService.getChainById(chainId);
+    if (chain) {
+      // 如果存在，选中该思维链
+      chainSelector.value = chainId;
+      renderVisualization(chainId);
+    } else {
+      console.warn('指定的思维链不存在:', chainId);
+    }
+  }
+}
+
+/**
+ * 初始化导出功能
+ */
+function initExportFeature() {
+  const exportBtn = document.getElementById('export-btn');
+  const exportDropdown = document.getElementById('export-dropdown');
+  const exportImage = document.getElementById('export-image');
+  const exportJSON = document.getElementById('export-json');
+  const copyLink = document.getElementById('copy-link');
+  const importJSON = document.getElementById('import-json');
+  
+  // 导出按钮点击切换下拉菜单
+  exportBtn.addEventListener('click', () => {
+    const exportControls = document.querySelector('.export-controls');
+    exportControls.classList.toggle('active');
+    
+    // 点击其他地方关闭下拉菜单
+    const closeDropdown = (e) => {
+      if (!exportControls.contains(e.target)) {
+        exportControls.classList.remove('active');
+        document.removeEventListener('click', closeDropdown);
+      }
+    };
+    
+    // 延迟添加事件监听，避免立即触发
+    setTimeout(() => {
+      document.addEventListener('click', closeDropdown);
+    }, 0);
+  });
+  
+  // 导出为图片
+  exportImage.addEventListener('click', () => {
+    exportAsImage();
+    document.querySelector('.export-controls').classList.remove('active');
+  });
+  
+  // 导出为JSON
+  exportJSON.addEventListener('click', () => {
+    exportAsJSON();
+    document.querySelector('.export-controls').classList.remove('active');
+  });
+  
+  // 复制分享链接
+  copyLink.addEventListener('click', () => {
+    copyShareLink();
+    document.querySelector('.export-controls').classList.remove('active');
+  });
+  
+  // 导入JSON文件
+  importJSON.addEventListener('click', () => {
+    importJSONFile();
+    document.querySelector('.export-controls').classList.remove('active');
+  });
+}
+
+/**
+ * 导出为图片
+ */
+function exportAsImage() {
+  if (!svg || !currentChainId) {
+    alert('请先选择一个思维链');
+    return;
+  }
+  
+  try {
+    // 准备SVG
+    const svgClone = svg.node().cloneNode(true);
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    
+    // 创建图片
+    const img = new Image();
+    img.onload = function() {
+      // 创建画布
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(img, 0, 0);
+      
+      // 转换为PNG并下载
+      const imgURL = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = imgURL;
+      a.download = `思维链_${currentChainId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+    
+    img.src = url;
+  } catch (error) {
+    console.error('导出图片失败:', error);
+    alert('导出图片失败，请重试');
+  }
+}
+
+/**
+ * 导出为JSON
+ */
+async function exportAsJSON() {
+  if (!currentChainId) {
+    alert('请先选择一个思维链');
+    return;
+  }
+  
+  try {
+    const chain = await storageService.getChainById(currentChainId);
+    if (!chain) {
+      alert('无法获取思维链数据');
+      return;
+    }
+    
+    // 转换为JSON字符串
+    const jsonStr = JSON.stringify(chain, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    // 下载JSON文件
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `思维链_${chain.name || currentChainId}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('导出JSON失败:', error);
+    alert('导出JSON失败，请重试');
+  }
+}
+
+/**
+ * 复制分享链接
+ */
+function copyShareLink() {
+  if (!currentChainId) {
+    alert('请先选择一个思维链');
+    return;
+  }
+  
+  // 创建带有思维链ID的URL
+  const shareUrl = `${window.location.origin}${window.location.pathname}?chain=${currentChainId}`;
+  
+  // 复制到剪贴板
+  navigator.clipboard.writeText(shareUrl)
+    .then(() => {
+      // 显示成功消息
+      const exportBtn = document.getElementById('export-btn');
+      const originalText = exportBtn.textContent;
+      exportBtn.textContent = '链接已复制!';
+      
+      // 恢复原始文本
+      setTimeout(() => {
+        exportBtn.textContent = originalText;
+      }, 2000);
+    })
+    .catch(err => {
+      console.error('复制链接失败:', err);
+      alert('复制链接失败，请手动复制:\n' + shareUrl);
+    });
+}
 
 /**
  * 初始化笔记编辑对话框
@@ -306,6 +500,9 @@ async function renderVisualization(chainId) {
       document.getElementById('message').style.display = 'block';
       return;
     }
+    
+    // 保存当前思维链数据，用于导出
+    currentChainData = chain;
     
     document.getElementById('message').style.display = 'none';
     
@@ -690,4 +887,93 @@ function initReorderHelpModal() {
 function showReorderHelp() {
   const modal = document.getElementById('reorder-help-modal');
   modal.style.display = 'flex';
+}
+
+/**
+ * 导入JSON文件
+ */
+function importJSONFile() {
+  // 创建隐藏的文件输入元素
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = '.json,application/json';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  
+  // 监听文件选择事件
+  fileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      document.body.removeChild(fileInput);
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const jsonData = JSON.parse(e.target.result);
+        await importThoughtChain(jsonData);
+      } catch (error) {
+        console.error('解析JSON失败:', error);
+        alert('无法解析JSON文件，请确认文件格式正确');
+      }
+      document.body.removeChild(fileInput);
+    };
+    
+    reader.onerror = () => {
+      alert('读取文件失败');
+      document.body.removeChild(fileInput);
+    };
+    
+    reader.readAsText(file);
+  });
+  
+  // 触发文件选择对话框
+  fileInput.click();
+}
+
+/**
+ * 导入思维链数据
+ * @param {Object} chainData - 思维链数据
+ */
+async function importThoughtChain(chainData) {
+  try {
+    // 验证数据格式
+    if (!chainData.id || !Array.isArray(chainData.nodes)) {
+      alert('无效的思维链数据格式');
+      return;
+    }
+    
+    // 生成新的ID，避免覆盖现有思维链
+    const originalId = chainData.id;
+    chainData.id = generateImportId(originalId);
+    chainData.name = chainData.name ? `${chainData.name} (导入)` : `导入的思维链`;
+    
+    // 保存到存储
+    const allChains = await storageService.getAllChains();
+    allChains.push(chainData);
+    await storageService.setData({ thoughtChains: allChains });
+    
+    // 重新加载思维链列表
+    await loadChains();
+    
+    // 选择导入的思维链
+    chainSelector.value = chainData.id;
+    renderVisualization(chainData.id);
+    
+    alert('思维链导入成功！');
+  } catch (error) {
+    console.error('导入思维链失败:', error);
+    alert('导入思维链失败，请重试');
+  }
+}
+
+/**
+ * 生成导入ID
+ * @param {string} originalId - 原始ID
+ * @returns {string} 新ID
+ */
+function generateImportId(originalId) {
+  const timestamp = Date.now().toString(36);
+  return `import_${timestamp}_${originalId.substring(0, 8)}`;
 } 
