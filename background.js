@@ -61,6 +61,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// 监听快捷键命令
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command === 'capture-thought') {
+    // 获取当前活动标签页
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const activeTab = tabs[0];
+      if (activeTab) {
+        // 创建思维节点对象
+        const node = createThoughtNode(activeTab.title, activeTab.url, '');
+        // 添加到当前活动的思维链
+        await storageService.addNodeToChain(node);
+        // 可选：通知用户已记录（如使用chrome.notifications）
+        chrome.notifications?.create({
+          type: 'basic',
+          iconUrl: 'images/icon48.png',
+          title: 'Thought Captured',
+          message: 'Current page has been added to your thought chain.'
+        });
+      }
+    });
+  }
+});
+
 /**
  * 处理添加节点请求
  * @param {Object} nodeData - 节点数据

@@ -9,6 +9,7 @@ const currentUrl = document.getElementById('current-url');
 const captureBtn = document.getElementById('captureBtn');
 const recentChains = document.getElementById('recent-chains');
 const viewAllBtn = document.getElementById('viewAllBtn');
+const noteInput = document.getElementById('noteInput');
 
 // 页面加载时获取当前标签页信息和最近的思维链
 document.addEventListener('DOMContentLoaded', () => {
@@ -188,7 +189,7 @@ captureBtn.addEventListener('click', () => {
       const nodeData = {
         title: activeTab.title,
         url: activeTab.url,
-        notes: '' // 暂不支持添加笔记
+        notes: noteInput.value // 获取用户输入的笔记
       };
       
       // 发送添加节点请求到background脚本
@@ -200,7 +201,8 @@ captureBtn.addEventListener('click', () => {
           // 更新UI显示成功消息
           captureBtn.textContent = '✓ 已添加';
           captureBtn.disabled = true;
-          
+          // 清空笔记输入框
+          noteInput.value = '';
           // 重新加载最近的思维链
           loadRecentChains();
           
