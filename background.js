@@ -123,6 +123,36 @@ async function ensureInitialized() {
   }
 }
 
+/**
+ * 模拟生成节点AI摘要并更新存储
+ * @param {ThoughtNode} node - 刚添加的思维节点对象 (应包含id和title)
+ * @param {string} chainId - 节点所属的思维链ID
+ */
+async function simulateAndUpdateNodeAISummary(node, chainId) {
+  if (!node || !node.id || !node.title || !chainId) {
+    console.warn('simulateAndUpdateNodeAISummary: 缺少必要的node信息或chainId。', { node, chainId });
+    return;
+  }
+
+  console.log(`开始为节点 "${node.title}" (ID: ${node.id}) 模拟生成AI摘要...`);
+
+  // 模拟AI处理延迟
+  await new Promise(resolve => setTimeout(resolve, 2000)); // 模拟2秒延迟
+
+  const sampleSummary = `这是一个AI生成的关于【${node.title}】的示例摘要内容...`;
+  
+  try {
+    const success = await storageService.updateNodeAISummary(chainId, node.id, sampleSummary);
+    if (success) {
+      console.log(`节点 "${node.title}" (ID: ${node.id}) 的模拟AI摘要已成功存储。`);
+    } else {
+      console.warn(`存储节点 "${node.title}" (ID: ${node.id}) 的模拟AI摘要失败。`);
+    }
+  } catch (error) {
+    console.error(`为节点 "${node.title}" (ID: ${node.id}) 更新AI摘要时出错:`, error);
+  }
+}
+
 // 监听来自popup或content script的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 使用try-catch包装所有消息处理，防止未捕获的异常
@@ -171,14 +201,30 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
         // 创建思维节点对象
         const node = createThoughtNode(activeTab.title, activeTab.url, '');
         // 添加到当前活动的思维链
-        await storageService.addNodeToChain(node);
-        // 可选：通知用户已记录（如使用chrome.notifications）
-        chrome.notifications?.create({
-          type: 'basic',
-          iconUrl: 'images/icon48.png',
-          title: 'Thought Captured',
-          message: 'Current page has been added to your thought chain.'
-        });
+        const result = await storageService.addNodeToChain(node);
+        
+        if (result && result.success) {
+          // 成功添加节点后，为其模拟生成AI摘要
+          // node 对象在 createThoughtNode 时已经有了 title，在 addNodeToChain 内部被赋予了id
+          // result.chainId 是节点所属的链ID
+          simulateAndUpdateNodeAISummary(node, result.chainId);
+
+          // 可选：通知用户已记录（如使用chrome.notifications）
+          chrome.notifications?.create({
+            type: 'basic',
+            iconUrl: 'images/icon48.png',
+            title: 'Thought Captured & AI Summary Pending', // 更新通知标题
+            message: `Page added to chain. Simulated AI summary for "${node.title}" will be generated.` // 更新通知消息
+          });
+        } else {
+          // 添加失败的通知 (可选)
+          chrome.notifications?.create({
+            type: 'basic',
+            iconUrl: 'images/icon48.png',
+            title: 'Capture Failed',
+            message: 'Failed to add page to thought chain.'
+          });
+        }
       }
     });
   }
@@ -199,6 +245,11 @@ async function handleAddNode(nodeData, callback) {
     // 添加到当前活动的思维链
     const result = await storageService.addNodeToChain(node);
     
+    if (result && result.success) {
+      // 成功添加节点后，为其模拟生成AI摘要
+      simulateAndUpdateNodeAISummary(node, result.chainId);
+    }
+
     if (callback) {
       callback(result);
     }

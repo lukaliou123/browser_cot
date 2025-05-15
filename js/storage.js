@@ -405,6 +405,37 @@ class StorageService {
     console.log(`思维链 ${chainId} 名称已更新为: ${newName.trim()}`);
     return true;
   }
+
+  /**
+   * 更新节点的AI摘要
+   * @param {string} chainId - 思维链ID
+   * @param {string} nodeId - 节点ID
+   * @param {string} summary - AI生成的摘要
+   * @returns {Promise<boolean>} 操作结果Promise
+   */
+  async updateNodeAISummary(chainId, nodeId, summary) {
+    const chains = await this.getAllChains();
+    const chainIndex = chains.findIndex(c => c.id === chainId);
+
+    if (chainIndex === -1) {
+      console.warn(`updateNodeAISummary: Chain with id ${chainId} not found.`);
+      return false;
+    }
+
+    const nodeIndex = chains[chainIndex].nodes.findIndex(node => node.id === nodeId);
+
+    if (nodeIndex === -1) {
+      console.warn(`updateNodeAISummary: Node with id ${nodeId} not found in chain ${chainId}.`);
+      return false;
+    }
+
+    chains[chainIndex].nodes[nodeIndex].aiSummary = summary;
+    chains[chainIndex].updatedAt = Date.now();
+
+    await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
+    console.log(`AI summary updated for node ${nodeId} in chain ${chainId}.`);
+    return true;
+  }
 }
 
 // 导出一个单例实例

@@ -13,6 +13,7 @@
  * @property {string} notes - 用户笔记
  * @property {string[]} [tags] - 标签列表(可选)
  * @property {Object} [metadata] - 元数据(可选)
+ * @property {string} [aiSummary] - AI生成的节点摘要(可选)
  */
 
 /**
@@ -47,7 +48,8 @@ function createThoughtNode(title, url, notes = '') {
     url: url,
     timestamp: Date.now(),
     notes: notes,
-    tags: []
+    tags: [],
+    aiSummary: ''
   };
 }
 

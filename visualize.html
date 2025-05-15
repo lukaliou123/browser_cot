@@ -130,6 +130,18 @@
       margin-top: 5px;
       padding-top: 5px;
       font-style: italic;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    
+    .tooltip-ai-summary {
+      border-top: 1px solid #eee;
+      margin-top: 8px;
+      padding-top: 8px;
+      font-size: 12px;
+      color: #333;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     
     .tooltip-time {
@@ -330,7 +342,11 @@
     
     <div id="visualization"></div>
     <div id="message">正在加载...</div>
-    <div id="tooltip"></div>
+    <div id="tooltip">
+      <div class="tooltip-notes"></div>
+      <div class="tooltip-ai-summary"></div>
+      <div class="tooltip-time"></div>
+    </div>
   </div>
   
   <!-- 笔记编辑对话框 -->

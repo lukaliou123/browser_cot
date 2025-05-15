@@ -660,6 +660,7 @@ async function renderVisualization(chainId) {
       url: node.url,
       timestamp: node.timestamp,
       notes: node.notes,
+      aiSummary: node.aiSummary,
       position: index // 添加位置索引
     }));
     
@@ -864,10 +865,16 @@ async function renderVisualization(chainId) {
  */
 function showTooltip(node, event) {
   const tooltip = document.getElementById('tooltip');
+  let aiSummaryHtml = '';
+  if (node.aiSummary && node.aiSummary.trim() !== '') {
+    aiSummaryHtml = `<div class="tooltip-ai-summary"><strong>AI 摘要:</strong><br>${node.aiSummary}</div>`;
+  }
+
   tooltip.innerHTML = `
     <div class="tooltip-title">${node.title}</div>
     <div class="tooltip-url">${node.url}</div>
     ${node.notes ? `<div class="tooltip-notes">${node.notes}</div>` : ''}
+    ${aiSummaryHtml} 
     <div class="tooltip-time">${new Date(node.timestamp).toLocaleString()}</div>
   `;
   
