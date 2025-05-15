@@ -1,8 +1,43 @@
 # 更新日志 (Changelog)
 
+## [项目初始MVP设想] (截至 2024-05-14)
+
+本项目最初的核心目标是构建一个思维链记录插件，其MVP（最小可行产品）阶段设想了以下基础功能：
+
+### 1. 基础扩展框架搭建
+*   创建 `manifest.json` 配置文件
+*   设置 `popup`, `background` 和 `content scripts`
+*   定义必要权限
+
+### 2. 数据模型设计
+*   思维节点结构 (URL、标题、时间戳、笔记)
+*   思维链结构 (节点集合、连接关系)
+*   本地存储实现 (如 `chrome.storage.local`)
+
+### 3. 一键记录功能实现
+*   页面信息捕获逻辑 (标题、URL)
+*   快捷键/按钮触发机制 (`popup.html` 按钮, 键盘快捷键)
+*   记录时可添加笔记
+
+### 4. 思维链可视化界面
+*   节点展示组件
+*   连接线/关系可视化 (基于时间顺序)
+*   (基础的自动布局，如D3.js力导向图)
+
+### 5. 基础编辑功能 (部分已在后续迭代中增强)
+*   节点笔记编辑
+*   单个节点删除
+
+### 6. 导出功能 (部分已在后续迭代中增强)
+*   导出为图片/JSON
+
+*(以上功能构成了插件的核心骨架和早期版本的基础能力。)*
+
+---
+
 ## [迭代 V1] - 2024-05-16
 
-本次迭代主要围绕 PRD "思维链分割与管理 V1" 展开，实现了以下核心功能，旨在提升用户对思维链的组织和管理能力。
+本次迭代主要围绕 PRD "思维链分割与管理 V1" 展开，在原有基础上新增并强化了以下核心功能，旨在提升用户对思维链的组织和管理能力。
 
 ### ✨ 新增功能 (Features)
 
@@ -30,7 +65,7 @@
     *   利用并验证了已有的 `deleteChain()` 方法。
 *   **`background.js`**:
     *   为上述所有新功能添加了相应的消息处理器 (`handleManualSplitChain`, `handleUpdateChainName`, `handleDeleteChain`)。
-    *   实现了 `setupDailySplitAlarm()` 和 `handleDailyChainSplit()` 方法，使用 `chrome.alarms` API 管理每日自动分割任务。
+    *   实现了 `setupDailySplitAlarm()` 和 `handleDailySplitSplit()` 方法，使用 `chrome.alarms` API 管理每日自动分割任务。
 *   **`visualize.html` / `visualize.js`**:
     *   添加了对应的UI按钮（开始新链、编辑名称、删除链）。
     *   实现了与 `background.js` 的消息通信，以及在操作成功后刷新UI（思维链列表、可视化视图）的逻辑。
