@@ -20,4 +20,7 @@ Thumbs.db
 
 # 忽略临时文件
 *.log
-*.tmp 
+*.tmp
+
+# 忽略配置文件(包含API密钥)
+js/config.js 

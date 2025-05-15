@@ -6,6 +6,7 @@
 // 在类型=module的脚本中，需要使用完整的相对路径
 import { createThoughtNode } from './js/models.js';
 import { storageService } from './js/storage.js';
+import { extractArticle } from './js/lib/readability/readability-adapter.js';
 
 // 存储初始化标志
 let isInitialized = false;
@@ -124,6 +125,87 @@ async function ensureInitialized() {
 }
 
 /**
+ * 获取网页内容
+ * @param {string} url - 网页URL
+ * @returns {Promise<string>} HTML内容
+ */
+async function fetchWebPageContent(url) {
+  if (!url) {
+    throw new Error('fetchWebPageContent: URL不能为空');
+  }
+
+  console.log(`开始获取网页内容: ${url}`);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`网页请求失败: HTTP ${response.status}`);
+    }
+
+    const htmlContent = await response.text();
+    console.log(`成功获取网页内容: ${url}, 大小: ${htmlContent.length} 字符`);
+    return htmlContent;
+  } catch (error) {
+    console.error(`获取网页内容失败: ${url}`, error);
+    throw error;
+  }
+}
+
+/**
+ * 使用Readability.js提取主要内容
+ * @param {string} htmlContent - HTML内容
+ * @param {string} url - 网页URL (用于设置基础URL)
+ * @returns {Object} 提取的文章对象，包含title和textContent
+ */
+async function extractMainContent(htmlContent, url) {
+  if (!htmlContent) {
+    throw new Error('extractMainContent: HTML内容不能为空');
+  }
+
+  console.log('开始提取网页主要内容...');
+  try {
+    const article = extractArticle(htmlContent, url);
+    
+    if (!article || !article.textContent) {
+      throw new Error('无法从网页提取有效内容');
+    }
+    
+    console.log(`成功提取内容，标题: "${article.title}", 正文长度: ${article.textContent.length} 字符`);
+    return article;
+  } catch (error) {
+    console.error('提取网页内容失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 处理提取的文本内容
+ * @param {string} textContent - 提取的文本内容
+ * @returns {string} 处理后的文本
+ */
+function preprocessTextContent(textContent) {
+  if (!textContent) {
+    return '';
+  }
+
+  // 移除多余的空行
+  let processed = textContent.replace(/\n{3,}/g, '\n\n');
+  
+  // 移除行首行尾的空白
+  processed = processed.split('\n')
+    .map(line => line.trim())
+    .join('\n');
+  
+  // 截断过长的文本 (临时方案，后续会由LangChain的分割器更好地处理)
+  const maxLength = 10000;
+  if (processed.length > maxLength) {
+    processed = processed.substring(0, maxLength) + '...';
+    console.log(`文本过长，已截断至 ${maxLength} 字符`);
+  }
+  
+  return processed;
+}
+
+/**
  * 模拟生成节点AI摘要并更新存储
  * @param {ThoughtNode} node - 刚添加的思维节点对象 (应包含id和title)
  * @param {string} chainId - 节点所属的思维链ID
@@ -151,6 +233,105 @@ async function simulateAndUpdateNodeAISummary(node, chainId) {
   } catch (error) {
     console.error(`为节点 "${node.title}" (ID: ${node.id}) 更新AI摘要时出错:`, error);
   }
+}
+
+/**
+ * 测试内容获取和提取功能 
+ * 这个函数仅用于开发测试，可以通过开发者工具调用
+ * @param {string} url - 测试URL
+ */
+async function testContentFetchAndExtraction(url) {
+  if (!url) {
+    console.error('请提供有效的URL进行测试');
+    return;
+  }
+  
+  console.log(`开始测试内容获取和提取: ${url}`);
+  try {
+    // 1. 获取网页内容
+    const htmlContent = await fetchWebPageContent(url);
+    console.log(`已获取HTML内容，长度: ${htmlContent.length} 字符`);
+    
+    // 2. 提取主要内容
+    const article = await extractMainContent(htmlContent, url);
+    console.log('提取的文章对象:', {
+      title: article.title,
+      textLength: article.textContent.length,
+      excerpt: article.textContent.substr(0, 150) + '...' // 只打印前150个字符作为预览
+    });
+    
+    // 3. 文本预处理
+    const processedText = preprocessTextContent(article.textContent);
+    console.log(`处理后的文本长度: ${processedText.length} 字符`);
+    console.log('处理后的文本预览:', processedText.substr(0, 150) + '...');
+    
+    return {
+      originalHtml: htmlContent,
+      extractedArticle: article,
+      processedText: processedText
+    };
+  } catch (error) {
+    console.error('测试内容获取和提取失败:', error);
+    throw error;
+  }
+}
+
+// 将测试函数暴露到全局作用域，方便在控制台调用
+if (typeof self !== 'undefined') {
+  self.testContentFetchAndExtraction = testContentFetchAndExtraction;
+  
+  // 完整的内容处理测试函数
+  self.testCompleteContentProcessing = async function(url, userNotes = '') {
+    console.group('完整内容处理测试');
+    console.log(`URL: ${url}`);
+    console.log(`用户笔记: ${userNotes || '(无)'}`);
+    
+    try {
+      // 1. 获取网页内容
+      console.log('步骤1: 获取网页内容...');
+      const htmlContent = await fetchWebPageContent(url);
+      
+      // 2. 提取主要内容
+      console.log('步骤2: 提取主要内容...');
+      const article = await extractMainContent(htmlContent, url);
+      
+      // 3. 处理文本
+      console.log('步骤3: 文本预处理...');
+      const processedText = preprocessTextContent(article.textContent);
+      
+      // 4. 模拟结果
+      console.log('完整处理流程测试完成!');
+      console.log('文章标题:', article.title);
+      console.log('处理后文本长度:', processedText.length, '字符');
+      console.log('处理后文本预览:', processedText.substring(0, 200) + '...');
+      
+      if (userNotes) {
+        console.log('用户笔记将影响摘要生成的方向:', userNotes);
+      }
+      
+      // 模拟AI摘要结果
+      const mockSummary = `这是一个关于"${article.title}"的测试摘要。该文章长度为${processedText.length}字符。${
+        userNotes ? `考虑到用户笔记中提到: "${userNotes.substring(0, 50)}${userNotes.length > 50 ? '...' : ''}"` : ''
+      }`;
+      
+      console.log('模拟AI摘要结果:', mockSummary);
+      
+      return {
+        success: true,
+        title: article.title,
+        processedText,
+        mockSummary
+      };
+    } catch (error) {
+      console.error('完整内容处理测试失败:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    } finally {
+      console.groupEnd();
+    }
+  };
 }
 
 // 监听来自popup或content script的消息
@@ -183,6 +364,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'deleteChain') {
       handleDeleteChain(message.chainId, sendResponse);
       return true;
+    } else if (message.action === 'extractContent') {
+      // 提取URL内容
+      handleExtractContent(message.url, sendResponse);
+      return true;
     }
   } catch (error) {
     console.error('处理消息时出错:', error);
@@ -190,6 +375,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 });
+
+/**
+ * 处理内容提取请求
+ * @param {string} url - 网页URL
+ * @param {Function} callback - 回调函数
+ */
+async function handleExtractContent(url, callback) {
+  if (!url) {
+    callback({ success: false, error: 'URL不能为空' });
+    return;
+  }
+
+  try {
+    const htmlContent = await fetchWebPageContent(url);
+    const article = await extractMainContent(htmlContent, url);
+    const processedText = preprocessTextContent(article.textContent);
+    
+    callback({
+      success: true,
+      data: {
+        title: article.title,
+        content: processedText,
+        excerpt: processedText.substr(0, 200) + '...' // 返回部分内容作为预览
+      }
+    });
+  } catch (error) {
+    console.error('处理内容提取请求失败:', error);
+    callback({
+      success: false,
+      error: error.message || '内容提取失败'
+    });
+  }
+}
 
 // 监听快捷键命令
 chrome.commands.onCommand.addListener(async (command, tab) => {
