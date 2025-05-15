@@ -122,6 +122,93 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // 初始化导出功能
   initExportFeature();
+
+  // 新增：开始新链按钮事件处理
+  const startNewChainBtn = document.getElementById('start-new-chain-btn');
+  if (startNewChainBtn) { // 确保按钮存在
+    startNewChainBtn.addEventListener('click', async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({ action: "manualSplitChain" });
+        if (response && response.success) {
+          // alert('新的思维链已成功创建！'); // 可以用更优雅的通知方式替换
+          console.log('New chain created successfully, new chainId:', response.newChainId);
+          // 重新加载思维链列表
+          const previouslySelectedChainId = response.newChainId; // 保存新创建的链ID
+          await loadChains();
+          // 自动选中新的思维链
+          if (previouslySelectedChainId) {
+            chainSelector.value = previouslySelectedChainId;
+            // 触发change事件以重新渲染
+            chainSelector.dispatchEvent(new Event('change')); 
+          }
+        } else {
+          console.error('创建新思维链失败:', response ? response.error : '未知错误');
+          alert('创建新思维链失败，请查看控制台获取更多信息。');
+        }
+      } catch (error) {
+        console.error('发送 manualSplitChain 消息时出错:', error);
+        alert('操作失败，请查看控制台获取更多信息。');
+      }
+    });
+  }
+
+  // 新增：编辑当前思维链名称按钮事件处理
+  const editChainNameBtn = document.getElementById('edit-chain-name-btn');
+  if (editChainNameBtn) {
+    editChainNameBtn.addEventListener('click', async () => {
+      const selectedChainId = chainSelector.value;
+      if (!selectedChainId) {
+        alert('请先从下拉列表中选择一个思维链进行编辑。');
+        return;
+      }
+
+      // 获取当前选中的链对象以得到当前名称
+      const currentChain = await storageService.getChainById(selectedChainId);
+      if (!currentChain) {
+        alert('无法获取当前选中的思维链信息。');
+        return;
+      }
+      const currentName = currentChain.name;
+
+      const newName = prompt('请输入新的思维链名称：', currentName);
+
+      if (newName && newName.trim() !== '' && newName.trim() !== currentName) {
+        try {
+          const response = await chrome.runtime.sendMessage({
+            action: "updateChainName",
+            chainId: selectedChainId,
+            newName: newName.trim()
+          });
+
+          if (response && response.success) {
+            console.log(`思维链 ${selectedChainId} 名称已更新为: ${newName.trim()}`);
+            // 保存当前选中的ID，因为loadChains会清空并重新填充列表
+            const previouslySelectedChainId = selectedChainId; 
+            await loadChains(); // 重新加载链列表以显示新名称
+            // 尝试恢复之前的选中状态
+            chainSelector.value = previouslySelectedChainId;
+            if (chainSelector.value !== previouslySelectedChainId) { 
+              // 如果ID由于某种原因在列表中找不到了(理论上不应该发生)，则尝试选中第一个有效链
+              if(chainSelector.options.length > 1) chainSelector.value = chainSelector.options[1].value; 
+            }
+             chainSelector.dispatchEvent(new Event('change')); // 触发渲染更新
+
+          } else {
+            console.error('更新思维链名称失败:', response ? response.error : '未知错误');
+            alert('更新思维链名称失败，请查看控制台获取更多信息。');
+          }
+        } catch (error) {
+          console.error('发送 updateChainName 消息时出错:', error);
+          alert('操作失败，请查看控制台获取更多信息。');
+        }
+      } else if (newName && newName.trim() === currentName) {
+        // 名称未改变，无需操作
+      } else if (newName !== null) { // 用户点击了确定，但输入为空
+        alert('思维链名称不能为空。');
+      }
+      // 如果 newName 为 null，表示用户点击了取消，不执行任何操作
+    });
+  }
 });
 
 /**

@@ -312,6 +312,99 @@ class StorageService {
     await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
     return true;
   }
+
+  /**
+   * 生成新的思维链名称 (YYYY-MM-DD (n))
+   * @returns {Promise<string>} 生成的思维链名称
+   */
+  async generateNewChainName() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0'); // 月份从0开始，所以+1
+    const day = String(today.getDate()).padStart(2, '0');
+    const datePrefix = `${year}-${month}-${day}`;
+
+    const allChains = await this.getAllChains();
+    let countForToday = 0;
+
+    for (const chain of allChains) {
+      if (chain.name && chain.name.startsWith(datePrefix)) {
+        // 检查是否有序号，例如 "YYYY-MM-DD (2)"
+        const match = chain.name.match(/\((\d+)\)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > countForToday) {
+            countForToday = num;
+          }
+        } else if (chain.name === datePrefix) {
+          // 如果名称就是日期本身 "YYYY-MM-DD"，那么至少有一个了
+          if (countForToday < 1) { // 确保基础的 "YYYY-MM-DD" 算作一个
+             countForToday = 1; // 如果只存在 "YYYY-MM-DD"，下一个应该是 "YYYY-MM-DD (2)"
+          }
+        }
+      }
+    }
+    
+    // 如果当天还没有链，或者只有一个名为 "YYYY-MM-DD" 的链，
+    // 并且我们期望的下一个是 "YYYY-MM-DD (1)" 或 "YYYY-MM-DD (2)"
+    // 这个逻辑需要仔细考虑PRD中的 "(n)" 是从1开始还是直接就是后缀
+
+    // 根据PRD: "YYYY-MM-DD (1)"、"YYYY-MM-DD (2)"
+    // 如果 countForToday 是 0 (表示当天没有任何 "YYYY-MM-DD" 或 "YYYY-MM-DD (n)" 格式的链), 那么新链是 "YYYY-MM-DD"
+    // 如果 countForToday 是 1 (表示已存在 "YYYY-MM-DD" 或者 "YYYY-MM-DD (1)"), 新链是 "YYYY-MM-DD (2)"
+    // 所以，新的序号应该是 countForToday + 1
+    
+    const chainsToday = allChains.filter(chain => chain.name && chain.name.startsWith(datePrefix));
+    if (chainsToday.length === 0) {
+      return datePrefix; // 当天第一条链，直接用日期
+    }
+
+    // 找到当前日期下最大的序号
+    let maxSuffix = 0;
+    chainsToday.forEach(chain => {
+      if (chain.name === datePrefix && maxSuffix < 1) { // "YYYY-MM-DD" 算作 (0) 或 (1) 的基础
+        maxSuffix = 1; // 如果存在 "YYYY-MM-DD", 下一个后缀从 (2) 开始
+      }
+      const match = chain.name.match(/\((\d+)\)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxSuffix) {
+          maxSuffix = num;
+        }
+      }
+    });
+
+    return `${datePrefix} (${maxSuffix + 1})`;
+  }
+
+  /**
+   * 更新指定思维链的名称
+   * @param {string} chainId - 要更新的思维链ID
+   * @param {string} newName - 新的思维链名称
+   * @returns {Promise<boolean>} 操作是否成功
+   */
+  async updateChainName(chainId, newName) {
+    if (!chainId || typeof newName !== 'string' || newName.trim() === '') {
+      console.error('更新链名称失败：无效的参数。');
+      return false;
+    }
+
+    const data = await this.getData();
+    const chains = data.thoughtChains || [];
+    const chainIndex = chains.findIndex(chain => chain.id === chainId);
+
+    if (chainIndex === -1) {
+      console.error(`更新链名称失败：未找到ID为 ${chainId} 的链。`);
+      return false;
+    }
+
+    chains[chainIndex].name = newName.trim();
+    chains[chainIndex].updatedAt = Date.now(); // 更新修改时间
+
+    await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
+    console.log(`思维链 ${chainId} 名称已更新为: ${newName.trim()}`);
+    return true;
+  }
 }
 
 // 导出一个单例实例

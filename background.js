@@ -53,6 +53,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // 设置活动思维链
       handleSetActiveChain(message.chainId, sendResponse);
       return true;
+    } else if (message.action === 'manualSplitChain') {
+      handleManualSplitChain(sendResponse);
+      return true;
+    } else if (message.action === 'updateChainName') {
+      handleUpdateChainName(message.chainId, message.newName, sendResponse);
+      return true;
     }
   } catch (error) {
     console.error('处理消息时出错:', error);
@@ -168,5 +174,55 @@ async function handleSetActiveChain(chainId, callback) {
     if (callback) {
       callback({ success: false, error: error.message });
     }
+  }
+}
+
+/**
+ * 处理手动分割思维链请求
+ * @param {Function} sendResponse - 回调函数，用于向调用方发送响应
+ */
+async function handleManualSplitChain(sendResponse) {
+  try {
+    await ensureInitialized(); // 确保存储服务已初始化
+
+    // 1. 生成新思维链的名称 (遵循 PRD 3.2.1)
+    const newChainName = await storageService.generateNewChainName();
+
+    // 2. 创建新的思维链并将其设为活动链
+    //    storageService.createChain 已经处理了ID生成、节点初始化、设置活动状态等
+    const newChain = await storageService.createChain(newChainName);
+
+    if (newChain && newChain.id) {
+      console.log(`新思维链已创建: ${newChain.name} (ID: ${newChain.id})`);
+      sendResponse({ success: true, newChainId: newChain.id, newChainName: newChain.name });
+    } else {
+      throw new Error('未能创建新的思维链或获取其ID。');
+    }
+
+  } catch (error) {
+    console.error('手动分割思维链失败:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * 处理更新思维链名称请求
+ * @param {string} chainId - 思维链ID
+ * @param {string} newName - 新的思维链名称
+ * @param {Function} sendResponse - 回调函数
+ */
+async function handleUpdateChainName(chainId, newName, sendResponse) {
+  try {
+    await ensureInitialized(); // 确保存储服务已初始化
+    const success = await storageService.updateChainName(chainId, newName);
+    if (success) {
+      sendResponse({ success: true });
+    } else {
+      // storageService.updateChainName 内部已经打印了错误，这里可以简单返回失败
+      sendResponse({ success: false, error: '更新链名称失败，详情请查看后台日志。' });
+    }
+  } catch (error) {
+    console.error('处理更新链名称请求失败:', error);
+    sendResponse({ success: false, error: error.message });
   }
 } 
