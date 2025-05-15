@@ -150,6 +150,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === 'updateChainName') {
       handleUpdateChainName(message.chainId, message.newName, sendResponse);
       return true;
+    } else if (message.action === 'deleteChain') {
+      handleDeleteChain(message.chainId, sendResponse);
+      return true;
     }
   } catch (error) {
     console.error('处理消息时出错:', error);
@@ -314,6 +317,28 @@ async function handleUpdateChainName(chainId, newName, sendResponse) {
     }
   } catch (error) {
     console.error('处理更新链名称请求失败:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
+
+/**
+ * 处理删除思维链请求
+ * @param {string} chainId - 要删除的思维链ID
+ * @param {Function} sendResponse - 回调函数
+ */
+async function handleDeleteChain(chainId, sendResponse) {
+  try {
+    await ensureInitialized();
+    const success = await storageService.deleteChain(chainId);
+    if (success) {
+      // 获取删除后可能的新活动链ID，以便前端可以尝试选中它
+      const newActiveChain = await storageService.getActiveChain(); 
+      sendResponse({ success: true, newActiveChainId: newActiveChain ? newActiveChain.id : null });
+    } else {
+      sendResponse({ success: false, error: '删除思维链失败，可能是因为链不存在。' });
+    }
+  } catch (error) {
+    console.error('处理删除思维链请求失败:', error);
     sendResponse({ success: false, error: error.message });
   }
 } 

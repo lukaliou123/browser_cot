@@ -209,6 +209,60 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 如果 newName 为 null，表示用户点击了取消，不执行任何操作
     });
   }
+
+  // 新增：删除当前思维链按钮事件处理
+  const deleteChainBtn = document.getElementById('delete-chain-btn');
+  if (deleteChainBtn) {
+    deleteChainBtn.addEventListener('click', async () => {
+      const selectedChainId = chainSelector.value;
+      if (!selectedChainId) {
+        alert('请先从下拉列表中选择一个思维链进行删除。');
+        return;
+      }
+
+      const selectedOptionText = chainSelector.options[chainSelector.selectedIndex].text;
+      // 从选项文本中提取纯链名，移除节点计数等
+      const currentChainName = selectedOptionText.replace(/\s*\(\d+\s*个节点\)$/, ''); 
+
+      if (!confirm(`确定要删除思维链 "${currentChainName}" 吗？此操作不可撤销。`)) {
+        return;
+      }
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          action: "deleteChain",
+          chainId: selectedChainId
+        });
+
+        if (response && response.success) {
+          console.log(`思维链 ${selectedChainId} 已被删除。`);
+          await loadChains(); // 重新加载链列表
+
+          // 尝试选中新的活动链，或者如果没有则回到默认状态
+          if (response.newActiveChainId) {
+            chainSelector.value = response.newActiveChainId;
+          } else {
+            // 如果没有新的活动链ID (例如所有链都被删了)
+            // 确保选择器回到初始提示状态（如果它存在）
+            if (chainSelector.options.length > 0 && chainSelector.options[0].value === '') {
+              chainSelector.selectedIndex = 0;
+            } else {
+              // 或者如果完全没有选项了，就没办法设置了
+            }
+          }
+          // 触发change事件以更新可视化 (如果选中了有效链，会重新渲染；如果回到提示，可视化会清空)
+          chainSelector.dispatchEvent(new Event('change')); 
+
+        } else {
+          console.error('删除思维链失败:', response ? response.error : '未知错误');
+          alert('删除思维链失败，请查看控制台获取更多信息。');
+        }
+      } catch (error) {
+        console.error('发送 deleteChain 消息时出错:', error);
+        alert('操作失败，请查看控制台获取更多信息。');
+      }
+    });
+  }
 });
 
 /**
