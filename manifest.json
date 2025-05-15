@@ -29,6 +29,10 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"]
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-extractor.js"]
     }
   ],
   "web_accessible_resources": [

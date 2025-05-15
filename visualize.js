@@ -1124,4 +1124,73 @@ async function importThoughtChain(chainData) {
 function generateImportId(originalId) {
   const timestamp = Date.now().toString(36);
   return `import_${timestamp}_${originalId.substring(0, 8)}`;
-} 
+}
+
+/**
+ * 提取HTML内容
+ * 此函数用于处理background.js发送的HTML内容
+ */
+function processHTMLContent(html, url, callback) {
+  console.log('visualize.js: 收到HTML内容处理请求');
+  try {
+    // 使用已加载的Readability库处理
+    // 创建一个临时的DOM文档来解析HTML
+    const doc = document.implementation.createHTMLDocument('');
+    doc.documentElement.innerHTML = html;
+    
+    // 创建Readability对象并解析
+    const reader = new Readability(doc);
+    const article = reader.parse();
+    
+    if (!article || !article.textContent) {
+      throw new Error('Readability无法提取有效内容');
+    }
+    
+    console.log('visualize.js: 内容提取成功', {
+      title: article.title,
+      textLength: article.textContent.length
+    });
+    
+    // 处理文本（与background.js中的preprocessTextContent函数类似）
+    let processedText = article.textContent;
+    
+    // 移除多余的空行
+    processedText = processedText.replace(/\n{3,}/g, '\n\n');
+    
+    // 移除行首行尾的空白
+    processedText = processedText.split('\n')
+      .map(line => line.trim())
+      .join('\n');
+    
+    // 截断过长的文本
+    const maxLength = 10000;
+    if (processedText.length > maxLength) {
+      processedText = processedText.substring(0, maxLength) + '...';
+      console.log('visualize.js: 文本过长，已截断至', maxLength, '字符');
+    }
+    
+    // 返回结果
+    callback({
+      success: true,
+      data: {
+        title: article.title,
+        content: processedText,
+        excerpt: article.excerpt || processedText.substring(0, 200) + '...'
+      }
+    });
+  } catch (error) {
+    console.error('visualize.js: 处理HTML内容时出错:', error);
+    callback({
+      success: false,
+      error: error.message || '内容提取失败'
+    });
+  }
+}
+
+// 监听background.js发送的消息
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'processHTMLContent') {
+    processHTMLContent(message.html, message.url, sendResponse);
+    return true; // 保持消息通道开放
+  }
+}); 

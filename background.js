@@ -163,18 +163,102 @@ async function extractMainContent(htmlContent, url) {
 
   console.log('开始提取网页主要内容...');
   try {
-    const article = extractArticle(htmlContent, url);
+    // 首先使用Service Worker中的基础提取能力
+    const basicArticle = extractArticle(htmlContent, url);
     
-    if (!article || !article.textContent) {
-      throw new Error('无法从网页提取有效内容');
+    // 如果可能，尝试使用更高级的提取方法
+    try {
+      // 检查当前活动标签页是否与目标URL匹配
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = tabs[0];
+      
+      if (activeTab && activeTab.url === url) {
+        console.log('URL匹配当前活动标签页，使用内容脚本提取...');
+        return await extractContentFromActiveTab(activeTab.id);
+      } else {
+        console.log('URL不匹配当前活动标签页，尝试使用visualize页面提取...');
+        // 判断visualize页面是否打开
+        const visualizeTabs = await chrome.tabs.query({ url: chrome.runtime.getURL("visualize.html") });
+        
+        if (visualizeTabs.length > 0) {
+          console.log('visualize页面已打开，使用其处理HTML...');
+          return await sendToVisualizeForProcessing(htmlContent, url);
+        } else {
+          console.log('无可用的高级提取环境，使用基本提取结果');
+          return basicArticle;
+        }
+      }
+    } catch (advancedError) {
+      console.warn('高级提取方法失败，回退到基本提取方法:', advancedError);
+      return basicArticle;
     }
-    
-    console.log(`成功提取内容，标题: "${article.title}", 正文长度: ${article.textContent.length} 字符`);
-    return article;
   } catch (error) {
     console.error('提取网页内容失败:', error);
     throw error;
   }
+}
+
+/**
+ * 从活动标签页提取内容
+ * @param {number} tabId - 标签页ID
+ * @returns {Promise<Object>} 提取的文章对象
+ */
+async function extractContentFromActiveTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(
+      tabId, 
+      { action: 'extractCurrentPageContent' },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(`与内容脚本通信失败: ${chrome.runtime.lastError.message}`));
+          return;
+        }
+        
+        if (!response || !response.success) {
+          reject(new Error(response?.error || '内容提取失败'));
+          return;
+        }
+        
+        resolve(response.data);
+      }
+    );
+  });
+}
+
+/**
+ * 发送HTML内容到visualize页面处理
+ * @param {string} htmlContent - HTML内容
+ * @param {string} url - 网页URL
+ * @returns {Promise<Object>} 提取的文章对象
+ */
+async function sendToVisualizeForProcessing(htmlContent, url) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query({ url: chrome.runtime.getURL("visualize.html") }, (tabs) => {
+      if (!tabs || tabs.length === 0) {
+        reject(new Error('visualize页面未打开'));
+        return;
+      }
+      
+      const visualizeTab = tabs[0];
+      chrome.tabs.sendMessage(
+        visualizeTab.id,
+        { action: 'processHTMLContent', html: htmlContent, url: url },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(`发送消息到visualize页面失败: ${chrome.runtime.lastError.message}`));
+            return;
+          }
+          
+          if (!response || !response.success) {
+            reject(new Error(response?.error || 'visualize页面处理失败'));
+            return;
+          }
+          
+          resolve(response.data);
+        }
+      );
+    });
+  });
 }
 
 /**
@@ -278,6 +362,7 @@ async function testContentFetchAndExtraction(url) {
 
 // 将测试函数暴露到全局作用域，方便在控制台调用
 if (typeof self !== 'undefined') {
+  // 测试内容获取和提取
   self.testContentFetchAndExtraction = testContentFetchAndExtraction;
   
   // 完整的内容处理测试函数
@@ -291,17 +376,18 @@ if (typeof self !== 'undefined') {
       console.log('步骤1: 获取网页内容...');
       const htmlContent = await fetchWebPageContent(url);
       
-      // 2. 提取主要内容
-      console.log('步骤2: 提取主要内容...');
+      // 2. 提取主要内容（使用混合策略）
+      console.log('步骤2: 使用混合策略提取主要内容...');
       const article = await extractMainContent(htmlContent, url);
       
-      // 3. 处理文本
+      // 3. 处理文本（如果尚未处理）
       console.log('步骤3: 文本预处理...');
-      const processedText = preprocessTextContent(article.textContent);
+      const processedText = article.content || preprocessTextContent(article.textContent);
       
-      // 4. 模拟结果
+      // 4. 显示结果
       console.log('完整处理流程测试完成!');
       console.log('文章标题:', article.title);
+      console.log('提取方法:', article.isBasicExtraction ? '基础HTML处理' : '高级提取（Readability）');
       console.log('处理后文本长度:', processedText.length, '字符');
       console.log('处理后文本预览:', processedText.substring(0, 200) + '...');
       
@@ -320,10 +406,97 @@ if (typeof self !== 'undefined') {
         success: true,
         title: article.title,
         processedText,
+        extractionMethod: article.isBasicExtraction ? 'basic' : 'advanced',
         mockSummary
       };
     } catch (error) {
       console.error('完整内容处理测试失败:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    } finally {
+      console.groupEnd();
+    }
+  };
+  
+  // 测试混合提取策略
+  self.testMixedExtractionStrategy = async function(url) {
+    console.group('混合提取策略测试');
+    console.log(`测试URL: ${url}`);
+    
+    try {
+      // 检查URL是否为当前活动标签页
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = tabs[0];
+      console.log('当前活动标签页:', activeTab ? activeTab.url : '无');
+      
+      if (activeTab && activeTab.url === url) {
+        console.log('✅ URL匹配当前活动标签页，将使用内容脚本提取');
+        
+        try {
+          const contentScriptResult = await extractContentFromActiveTab(activeTab.id);
+          console.log('内容脚本提取结果:', {
+            title: contentScriptResult.title,
+            contentLength: contentScriptResult.content?.length || 0,
+            extractionMethod: contentScriptResult.isBasicExtraction ? 'basic DOM' : 'Readability'
+          });
+        } catch (error) {
+          console.error('内容脚本提取失败:', error);
+        }
+      } else {
+        console.log('❌ URL不匹配当前活动标签页');
+      }
+      
+      // 检查visualize页面是否打开
+      const visualizeTabs = await chrome.tabs.query({ url: chrome.runtime.getURL("visualize.html") });
+      if (visualizeTabs.length > 0) {
+        console.log('✅ visualize页面已打开，可用于处理HTML');
+        
+        try {
+          // 获取HTML用于测试
+          const htmlContent = await fetchWebPageContent(url);
+          console.log(`已获取HTML内容，大小: ${htmlContent.length} 字符`);
+          
+          const visualizeResult = await sendToVisualizeForProcessing(htmlContent, url);
+          console.log('visualize页面处理结果:', {
+            title: visualizeResult.title,
+            contentLength: visualizeResult.content?.length || 0
+          });
+        } catch (error) {
+          console.error('visualize页面处理失败:', error);
+        }
+      } else {
+        console.log('❌ visualize页面未打开');
+      }
+      
+      // 测试基础提取能力
+      console.log('测试Service Worker基础提取能力...');
+      const htmlContent = await fetchWebPageContent(url);
+      const basicResult = extractArticle(htmlContent, url);
+      console.log('基础提取结果:', {
+        title: basicResult.title,
+        contentLength: basicResult.textContent?.length || 0
+      });
+      
+      // 运行完整的混合策略测试
+      console.log('运行完整的混合策略测试...');
+      const fullResult = await extractMainContent(htmlContent, url);
+      console.log('最终选择的提取方法:', fullResult.isBasicExtraction ? '基础提取' : '高级提取');
+      console.log('提取结果:', {
+        title: fullResult.title,
+        contentLength: fullResult.content?.length || fullResult.textContent?.length || 0
+      });
+      
+      return {
+        success: true,
+        activeTabMatch: activeTab && activeTab.url === url,
+        visualizeAvailable: visualizeTabs.length > 0,
+        finalMethod: fullResult.isBasicExtraction ? 'basic' : 'advanced',
+        title: fullResult.title
+      };
+    } catch (error) {
+      console.error('混合提取策略测试失败:', error);
       return {
         success: false,
         error: error.message
@@ -388,16 +561,24 @@ async function handleExtractContent(url, callback) {
   }
 
   try {
+    console.log(`开始处理内容提取请求: ${url}`);
+    
+    // 1. 获取HTML内容
     const htmlContent = await fetchWebPageContent(url);
+    
+    // 2. 使用混合策略提取主要内容
     const article = await extractMainContent(htmlContent, url);
-    const processedText = preprocessTextContent(article.textContent);
+    
+    // 3. 预处理文本内容（如果还未处理）
+    const processedText = article.content || preprocessTextContent(article.textContent);
     
     callback({
       success: true,
       data: {
         title: article.title,
         content: processedText,
-        excerpt: processedText.substr(0, 200) + '...' // 返回部分内容作为预览
+        excerpt: article.excerpt || processedText.substr(0, 200) + '...',
+        isBasicExtraction: article.isBasicExtraction // 标记是否使用了基础提取方法
       }
     });
   } catch (error) {
