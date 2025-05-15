@@ -22,6 +22,97 @@ chrome.runtime.onInstalled.addListener(async () => {
   } catch (error) {
     console.error('存储初始化失败:', error);
   }
+  
+  // 设置每日自动分割定时器
+  setupDailySplitAlarm();
+});
+
+// 插件启动时也尝试设置定时器 (以防首次安装后浏览器未立即重启或插件被禁用后重开)
+chrome.runtime.onStartup.addListener(() => {
+  console.log('插件启动，检查并设置每日分割定时器。');
+  setupDailySplitAlarm();
+});
+
+/**
+ * 设置每日凌晨4点执行的自动分割思维链的定时器
+ */
+async function setupDailySplitAlarm() {
+  const alarmName = 'dailyChainSplitAlarm';
+  try {
+    const alarm = await chrome.alarms.get(alarmName);
+    if (alarm) {
+      console.log('每日分割定时器已存在:', alarm);
+      // 可选：如果需要调整时间或周期，可以在这里清除并重新创建
+      // chrome.alarms.clear(alarmName);
+    } else {
+      // 计算下一个凌晨4点的时间
+      let next4AM = new Date();
+      next4AM.setHours(4, 0, 0, 0); // 设置为当天的4:00:00.000
+
+      if (next4AM.getTime() <= Date.now()) {
+        // 如果今天的4点已过，则设置为明天的4点
+        next4AM.setDate(next4AM.getDate() + 1);
+      }
+
+      chrome.alarms.create(alarmName, {
+        when: next4AM.getTime(),
+        periodInMinutes: 24 * 60 // 每24小时重复
+      });
+      console.log(`每日分割定时器已创建，下次触发时间: ${next4AM.toLocaleString()}`);
+    }
+  } catch (error) {
+    console.error('设置每日分割定时器失败:', error);
+  }
+}
+
+/**
+ * 处理每日自动分割逻辑
+ */
+async function handleDailyChainSplit() {
+  console.log(`[${new Date().toLocaleString()}] 执行每日思维链自动分割检查...`);
+  await ensureInitialized(); // 确保存储服务可用
+
+  try {
+    const activeChain = await storageService.getActiveChain();
+    if (!activeChain) {
+      console.log('没有活动的思维链，无需分割。');
+      return;
+    }
+
+    const chainCreationTime = activeChain.createdAt; // 假设 ThoughtChain 对象有 createdAt 属性
+    if (!chainCreationTime) {
+      console.warn(`活动链 ${activeChain.id} (${activeChain.name}) 没有 createdAt 时间戳，无法判断是否需要分割。`);
+      return;
+    }
+
+    // 计算今天的凌晨4点
+    let today4AM = new Date();
+    today4AM.setHours(4, 0, 0, 0);
+
+    if (chainCreationTime < today4AM.getTime()) {
+      console.log(`活动链 "${activeChain.name}" (创建于: ${new Date(chainCreationTime).toLocaleString()}) 是在今天凌晨4点之前创建的，需要分割。`);
+      
+      // (可选) 更新旧链状态，如果实现了该功能
+      // activeChain.status = 'auto-archived';
+      // await storageService.updateChain(activeChain); 
+
+      const newChainName = await storageService.generateNewChainName();
+      const newChain = await storageService.createChain(newChainName);
+      console.log(`自动创建了新的活动思维链: "${newChain.name}" (ID: ${newChain.id})`);
+
+    } else {
+      console.log(`活动链 "${activeChain.name}" (创建于: ${new Date(chainCreationTime).toLocaleString()}) 是在今天凌晨4点之后创建或更新的，无需分割。`);
+    }
+  } catch (error) {
+    console.error('每日自动分割思维链失败:', error);
+  }
+}
+
+// 监听定时器触发
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'dailyChainSplitAlarm') {
+    handleDailyChainSplit();
+  }
 });
 
 // 确保存储已初始化
