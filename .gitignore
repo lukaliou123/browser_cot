@@ -1,5 +1,4 @@
-# 忽略图片文件(自动生成的)
-images/*.png
+
 
 # 忽略node模块(如果之后使用)
 node_modules/
@@ -22,5 +21,13 @@ Thumbs.db
 *.log
 *.tmp
 
-# 忽略配置文件(包含API密钥)
-js/config.js 
+# 忽略迭代日志和设计文档 (本地使用)
+iterated_log/
+
+# 忽略打包的扩展文件 (如果生成)
+*.zip
+*.crx
+
+# 注意：js/config.js 文件本身应被版本控制，因为它提供了配置模板。
+# 用户在填入自己的API密钥后，应自行避免将修改后的 js/config.js 提交到公共仓库。
+# README.md 中会有相关安全提示。 

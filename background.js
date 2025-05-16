@@ -287,6 +287,19 @@ async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
   await ensureInitialized();
   console.log(`开始为节点 ${node.id} (${node.title}) 生成真实AI摘要...`);
 
+  // Check API Key before proceeding with operations that require it
+  if (!OPENAI_API_KEY) {
+    const warningMessage = 'OpenAI API 密钥未在 js/config.js 中配置。AI摘要功能将不可用。请配置后重试或手动添加摘要。';
+    console.warn(warningMessage);
+    // 尝试保存警告信息作为摘要
+    try {
+      await storageService.updateNodeAISummary(chainId, node.id, `AI摘要功能未配置: ${warningMessage}`);
+    } catch (storageError) {
+      console.error('保存API密钥缺失警告摘要时失败了:', storageError);
+    }
+    return { success: false, error: warningMessage }; // Return early
+  }
+
   try {
     // --- 开始：避免重复生成摘要的检查 ---
     const currentNodeState = await storageService.getNodeById(chainId, node.id);
@@ -439,7 +452,14 @@ async function ensureOffscreenDocumentReady() {
  * @returns {Promise<string>} 生成的摘要
  */
 async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
-  // 确保Offscreen Document存在，不再等待ready状态
+  if (!apiKey) { // This check is now against the directly imported OPENAI_API_KEY passed by the caller
+    const message = 'OpenAI API 密钥未在 js/config.js 中配置或为空。请在该文件中提供有效的API密钥以使用AI功能。';
+    console.warn(message);
+    // No chrome.notifications here for now to keep it simple for demo
+    throw new Error(message); // Throw error to stop further processing
+  }
+  
+  // 确保offscreen document准备就绪
   try {
     // 检查是否已存在Offscreen Document
     const hasDocument = await chrome.offscreen.hasDocument();
@@ -720,7 +740,8 @@ if (typeof self !== 'undefined') {
       
       // 4. 调用真实AI生成摘要 (通过 Offscreen Document)
       console.log('步骤4: 调用真实AI生成摘要 (通过 Offscreen Document)...');
-      console.log('使用API密钥:', OPENAI_API_KEY.substring(0, 10) + '...' + OPENAI_API_KEY.substring(OPENAI_API_KEY.length - 5));
+      // Ensure logging the API key is safe, directly use OPENAI_API_KEY
+      console.log('使用API密钥:', OPENAI_API_KEY ? (OPENAI_API_KEY.substring(0, 10) + '...' + OPENAI_API_KEY.substring(OPENAI_API_KEY.length - 5)) : '无有效API密钥 (未配置)');
       console.log('使用模型:', AI_CONFIG.summary.defaultModel);
       
       const options = {
@@ -1073,6 +1094,21 @@ async function handleRequestChainSummary(chainId, nodes, sendResponse, customGui
     sendResponse({ success: false, error: 'Chain ID 或节点数据无效' });
     return;
   }
+
+  // Check API Key before proceeding
+  if (!OPENAI_API_KEY) {
+    const warningMessage = 'OpenAI API 密钥未在 js/config.js 中配置。链总结功能将不可用。';
+    console.warn(warningMessage);
+    try {
+      // Attempt to save this warning as the summary doc
+      await storageService.updateChainSummaryDoc(chainId, `AI链总结功能未配置: ${warningMessage}`);
+    } catch (storageError) {
+      console.error('保存API密钥缺失警告链总结时失败了:', storageError);
+    }
+    sendResponse({ success: false, error: warningMessage, generatedDoc: `AI链总结功能未配置: ${warningMessage}` });
+    return; // Return early
+  }
+
   try {
     await ensureInitialized();
     console.log(`收到生成链总结请求 (Chain ID: ${chainId}), 节点数量: ${nodes.length}, 自定义指导: "${customGuidance}"`);
