@@ -24,6 +24,7 @@
  * @property {number} createdAt - 创建时间戳
  * @property {number} updatedAt - 最后更新时间戳
  * @property {ThoughtNode[]} nodes - 思维节点数组
+ * @property {string} chainSummaryDoc - 思维链摘要文档
  */
 
 /**
@@ -65,7 +66,8 @@ function createThoughtChain(name = null) {
     name: name || `思维链 ${new Date(timestamp).toLocaleDateString()}`,
     createdAt: timestamp,
     updatedAt: timestamp,
-    nodes: []
+    nodes: [],
+    chainSummaryDoc: ''
   };
 }
 

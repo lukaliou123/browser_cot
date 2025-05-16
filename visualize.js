@@ -34,6 +34,12 @@ const colors = {
 let editMode = false;
 let reorderMode = false;
 
+// 新增：AI链总结报告相关变量
+let chainSummaryModal = null;
+let chainSummaryContent = null;
+let closeChainSummaryModalBtn = null;
+let generateChainSummaryBtn = null;
+
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
   // 初始化 DOM 引用
@@ -122,6 +128,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // 初始化导出功能
   initExportFeature();
+
+  // 新增：初始化AI链总结报告功能
+  initChainSummaryModal();
 
   // 新增：开始新链按钮事件处理
   const startNewChainBtn = document.getElementById('start-new-chain-btn');
@@ -1193,4 +1202,125 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     processHTMLContent(message.html, message.url, sendResponse);
     return true; // 保持消息通道开放
   }
-}); 
+});
+
+// --- 新增：AI链总结报告相关函数 ---
+
+/**
+ * 初始化AI链总结报告模态框及其相关元素的引用和事件监听
+ */
+function initChainSummaryModal() {
+  chainSummaryModal = document.getElementById('chainSummaryModal');
+  chainSummaryContent = document.getElementById('chainSummaryContent');
+  closeChainSummaryModalBtn = document.getElementById('closeChainSummaryModal');
+  generateChainSummaryBtn = document.getElementById('generateChainSummaryBtn');
+
+  if (!chainSummaryModal || !chainSummaryContent || !closeChainSummaryModalBtn || !generateChainSummaryBtn) {
+    console.error('AI链总结报告相关DOM元素未找到，请检查HTML结构。');
+    return;
+  }
+
+  // "生成/查看总结报告"按钮点击事件
+  generateChainSummaryBtn.addEventListener('click', async () => {
+    if (!currentChainId) {
+      alert('请先选择一个思维链。');
+      return;
+    }
+
+    console.log(`请求获取或生成链 (ID: ${currentChainId}) 的总结报告...`);
+    // 禁用按钮，显示加载状态
+    generateChainSummaryBtn.disabled = true;
+    generateChainSummaryBtn.textContent = '处理中...';
+
+    try {
+      // 1. 尝试获取已存在的总结
+      let response = await chrome.runtime.sendMessage({
+        action: "getChainSummaryDoc",
+        chainId: currentChainId
+      });
+
+      if (response && response.success && response.summaryDoc && response.summaryDoc.trim() !== '') {
+        console.log('获取到已存在的链总结:', response.summaryDoc.substring(0,100) + "...");
+        showChainSummary(response.summaryDoc);
+      } else {
+        // 2. 如果没有已存在的总结，则请求生成新的
+        console.log('未找到已存在的链总结，或获取失败。开始请求生成新的总结...');
+        if (response && !response.success) {
+          console.warn('获取已存总结的请求本身失败了:', response.error);
+        }
+
+        // 收集当前链的节点数据
+        if (!currentChainData || !currentChainData.nodes) {
+          alert('无法获取当前思维链的节点数据，请确保已选中并加载思维链。');
+          generateChainSummaryBtn.disabled = false;
+          generateChainSummaryBtn.textContent = '链总结';
+          return;
+        }
+        const nodesArray = currentChainData.nodes.map(node => ({
+          id: node.id,
+          title: node.title,
+          url: node.url,
+          notes: node.notes,
+          aiSummary: node.aiSummary
+        }));
+
+        console.log(`发送生成新总结的请求，节点数量: ${nodesArray.length}`);
+        response = await chrome.runtime.sendMessage({
+          action: "requestChainSummary",
+          chainId: currentChainId,
+          nodes: nodesArray
+        });
+
+        if (response && response.success && response.generatedDoc) {
+          console.log('新总结已生成:', response.generatedDoc.substring(0,100) + "...");
+          showChainSummary(response.generatedDoc);
+        } else {
+          const errorMsg = response?.error || '生成总结报告失败，且未返回明确错误信息。';
+          console.error('生成新总结报告失败:', errorMsg);
+          // 在模态框内显示错误信息，或者用alert
+          showChainSummary(`生成总结报告失败: ${errorMsg}`); 
+          // alert(`生成总结报告失败: ${errorMsg}`);
+        }
+      }
+    } catch (error) {
+      console.error('处理链总结操作时发生意外错误:', error);
+      alert(`操作失败: ${error.message}`);
+      // 可以在模态框内显示这个顶层错误
+      showChainSummary(`操作失败: ${error.message}`); 
+    } finally {
+      // 恢复按钮状态
+      generateChainSummaryBtn.disabled = false;
+      generateChainSummaryBtn.textContent = '链总结';
+    }
+  });
+
+  // 关闭模态框按钮
+  closeChainSummaryModalBtn.addEventListener('click', hideChainSummaryModal);
+
+  // 点击模态框背景关闭 (如果需要)
+  chainSummaryModal.addEventListener('click', (event) => {
+    if (event.target === chainSummaryModal) {
+      hideChainSummaryModal();
+    }
+  });
+}
+
+/**
+ * 显示AI链总结报告模态框并填充内容
+ * @param {string} summaryDoc - 要显示的总结文档内容
+ */
+function showChainSummary(summaryDoc) {
+  if (!chainSummaryModal || !chainSummaryContent) return;
+  
+  chainSummaryContent.textContent = summaryDoc; // 使用 textContent 以避免HTML注入
+  chainSummaryModal.style.display = 'flex'; // 使用 flex 来居中 (与现有 modal 样式一致)
+}
+
+/**
+ * 隐藏AI链总结报告模态框
+ */
+function hideChainSummaryModal() {
+  if (!chainSummaryModal) return;
+  chainSummaryModal.style.display = 'none';
+  chainSummaryContent.textContent = ''; // 清空内容
+} 

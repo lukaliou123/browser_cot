@@ -436,6 +436,72 @@ class StorageService {
     console.log(`AI summary updated for node ${nodeId} in chain ${chainId}.`);
     return true;
   }
+
+  /**
+   * 更新指定思维链的总结文档
+   * @param {string} chainId - 要更新的思维链ID
+   * @param {string} summaryDoc - AI生成的总结文档
+   * @returns {Promise<boolean>} 操作是否成功
+   */
+  async updateChainSummaryDoc(chainId, summaryDoc) {
+    if (!chainId) {
+      console.error('updateChainSummaryDoc: chainId 不能为空');
+      return false;
+    }
+
+    const chains = await this.getAllChains();
+    const chainIndex = chains.findIndex(chain => chain.id === chainId);
+
+    if (chainIndex === -1) {
+      console.error(`updateChainSummaryDoc: 未找到ID为 ${chainId} 的链。`);
+      return false;
+    }
+
+    chains[chainIndex].chainSummaryDoc = summaryDoc;
+    chains[chainIndex].updatedAt = Date.now(); // 更新链的修改时间
+
+    await this.setData({ [STORAGE_KEYS.THOUGHT_CHAINS]: chains });
+    console.log(`思维链 ${chainId} 的总结文档已更新。`);
+    return true;
+  }
+
+  /**
+   * 获取指定思维链的总结文档
+   * @param {string} chainId - 思维链ID
+   * @returns {Promise<string|null>} 总结文档内容，如果未找到链或无总结则返回null
+   */
+  async getChainSummaryDoc(chainId) {
+    if (!chainId) {
+      console.error('getChainSummaryDoc: chainId 不能为空');
+      return null;
+    }
+    const chain = await this.getChainById(chainId);
+    if (!chain) {
+      console.error(`getChainSummaryDoc: 未找到ID为 ${chainId} 的链。`);
+      return null;
+    }
+    // 属性可能不存在于旧数据结构，所以安全访问
+    return chain.chainSummaryDoc || null; 
+  }
+
+  /**
+   * 通过链ID和节点ID获取指定的思维节点
+   * @param {string} chainId - 思维链ID
+   * @param {string} nodeId - 节点ID
+   * @returns {Promise<ThoughtNode|null>} 找到的节点对象，如果未找到则返回null
+   */
+  async getNodeById(chainId, nodeId) {
+    if (!chainId || !nodeId) {
+      console.error('getNodeById: chainId 和 nodeId 不能为空');
+      return null;
+    }
+    const chain = await this.getChainById(chainId);
+    if (!chain || !chain.nodes) {
+      // console.error(`getNodeById: 未找到ID为 ${chainId} 的链，或链中没有节点。`);
+      return null;
+    }
+    return chain.nodes.find(node => node.id === nodeId) || null;
+  }
 }
 
 // 导出一个单例实例

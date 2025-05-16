@@ -307,6 +307,24 @@
     .export-controls.active .export-dropdown {
       display: block;
     }
+
+    /* AI链总结报告模态框样式 */
+    #chainSummaryModal .modal-content {
+      /* 可以根据需要调整宽度 */
+      max-width: 700px; 
+    }
+
+    #chainSummaryContent {
+      white-space: pre-wrap; /* 保持换行和空格 */
+      max-height: 70vh; /* 限制最大高度，70%视窗高度 */
+      overflow-y: auto; /* 内容超出时显示滚动条 */
+      border: 1px solid #eee;
+      padding: 15px;
+      margin-top: 10px;
+      background-color: #f9f9f9;
+      line-height: 1.6;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -320,6 +338,7 @@
       <button id="edit-chain-name-btn" class="btn" title="编辑当前选中思维链的名称">✏️ 编辑名称</button>
       <button id="delete-chain-btn" class="btn btn-danger" title="删除当前选中的思维链">🗑️ 删除链</button>
       <button id="start-new-chain-btn" class="btn">开始新链</button>
+      <button id="generateChainSummaryBtn" class="btn" title="生成/查看本链总结报告">链总结</button>
       
       <div class="export-controls">
         <button id="export-btn" class="btn">导出/分享</button>
@@ -353,7 +372,7 @@
   </div>
   
   <!-- 笔记编辑对话框 -->
-  <div id="note-edit-modal">
+  <div id="note-edit-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
         <h3>编辑笔记</h3>
@@ -388,6 +407,27 @@
       <div class="modal-footer">
         <button class="btn-save" id="reorder-help-got-it">知道了</button>
       </div>
+    </div>
+  </div>
+
+  <!-- AI链总结报告模态框 -->
+  <div id="chainSummaryModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>思维链总结报告</h3>
+        <button id="closeChainSummaryModal" class="modal-close" title="关闭">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="chainSummaryContent">
+          <!-- 报告内容将填充此处 -->
+        </div>
+      </div>
+      <!-- 可选的页脚，例如用于放置"重新生成"或"编辑"按钮 (未来功能) -->
+      <!-- 
+      <div class="modal-footer">
+        <button class="btn-cancel">关闭</button> 
+      </div>
+      -->
     </div>
   </div>
   
