@@ -640,26 +640,52 @@ function clearReorderSelection() {
  * @param {string} chainId - 思维链 ID
  */
 async function renderVisualization(chainId) {
-  if (!chainId) return;
-  
-  currentChainId = chainId;
+  // 确保在尝试渲染新内容之前，总是先清空旧的可视化内容
+  if (container) { // 确保 container 已初始化
+    container.innerHTML = ''; 
+  }
+  if (document.getElementById('message')) { // 确保 message 元素存在
+    document.getElementById('message').style.display = 'none'; // 先隐藏消息
+  }
+
+  if (!chainId) {
+    // 如果 chainId 为空（例如，选择了 "-- 选择一个思维链 --"），则清空可视化并显示提示
+    if (document.getElementById('message')) {
+        document.getElementById('message').textContent = '请选择一个思维链进行可视化。';
+        document.getElementById('message').style.display = 'block';
+    }
+    currentChainId = null; // 清除当前链ID
+    currentChainData = null; // 清除当前链数据
+    if (simulation) simulation.stop(); // 停止任何正在进行的模拟
+    return;
+  }
+
+  currentChainId = chainId; // 在确认 chainId 有效后再赋值
   
   try {
     // 获取思维链数据
     const chain = await storageService.getChainById(chainId);
+    currentChainData = chain; // 统一在这里更新 currentChainData
+
     if (!chain || !chain.nodes || chain.nodes.length === 0) {
-      document.getElementById('message').textContent = '该思维链没有节点数据。';
-      document.getElementById('message').style.display = 'block';
+      if (document.getElementById('message')) {
+        document.getElementById('message').textContent = '该思维链没有节点数据。';
+        document.getElementById('message').style.display = 'block';
+      }
+      // container.innerHTML = ''; // 已在函数开头执行，无需重复
+      if (simulation) simulation.stop(); // 如果之前有模拟，停止它
       return;
     }
     
-    // 保存当前思维链数据，用于导出
-    currentChainData = chain;
+    // 保存当前思维链数据，用于导出 (currentChainData 已在上面更新)
+    // currentChainData = chain;
+    
+    // document.getElementById('message').style.display = 'none'; // 已在函数开头执行
+    
+    // 清空现有可视化 (已在函数开头执行)
+    // container.innerHTML = '';
     
     document.getElementById('message').style.display = 'none';
-    
-    // 清空现有可视化
-    container.innerHTML = '';
     
     // 清除重排序选择
     clearReorderSelection();
