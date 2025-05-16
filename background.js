@@ -799,7 +799,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleGetChainSummaryDoc(message.chainId, sendResponse);
       return true;
     } else if (message.action === 'requestChainSummary') {
-      handleRequestChainSummary(message.chainId, message.nodes, sendResponse);
+      handleRequestChainSummary(message.chainId, message.nodes, sendResponse, message.customGuidance);
       return true;
     }
   } catch (error) {
@@ -1068,28 +1068,19 @@ async function handleGetChainSummaryDoc(chainId, sendResponse) {
 }
 
 // --- 新增函数：处理请求生成链总结 --- 
-async function handleRequestChainSummary(chainId, nodes, sendResponse) {
+async function handleRequestChainSummary(chainId, nodes, sendResponse, customGuidance = '') {
   if (!chainId || !nodes || !Array.isArray(nodes)) {
     sendResponse({ success: false, error: 'Chain ID 或节点数据无效' });
     return;
   }
   try {
     await ensureInitialized();
-    console.log(`收到生成链总结请求 (Chain ID: ${chainId}), 节点数量: ${nodes.length}`);
+    console.log(`收到生成链总结请求 (Chain ID: ${chainId}), 节点数量: ${nodes.length}, 自定义指导: "${customGuidance}"`);
     
-    // 打印节点数据结构以供调试 (构造输入文本和Prompt之前)
-    console.log('接收到的节点数据:');
-    nodes.forEach((node, index) => {
-      console.log(`  节点 ${index + 1}:`, {
-        title: node.title,
-        notes: node.notes,
-        aiSummary: node.aiSummary,
-        url: node.url
-      });
-    });
+    // 打印节点数据结构以供调试
+    // console.log('接收到的节点数据:', nodes);
 
     // --- AI调用前的准备 (步骤 6 from PLAN_ChainSummary_V1.md) ---
-    // 构造输入文本
     let inputText = "";
     nodes.forEach((node, index) => {
       inputText += `节点 ${index + 1}: ${node.title || '无标题'}\n`;
@@ -1098,33 +1089,56 @@ async function handleRequestChainSummary(chainId, nodes, sendResponse) {
       inputText += `原始链接: ${node.url || '无'}\n`;
       inputText += `---\n`;
     });
-    console.log("构造的AI输入文本 (部分预览):\n", inputText.substring(0, 500) + "...");
 
-    // 设计Prompt (来自计划文档)
-    const prompt = `请仔细分析以下按顺序排列的思维链节点信息。每个节点代表用户浏览和思考的一个步骤，可能包含用户笔记和AI对该节点内容的初步摘要。请基于所有这些信息，生成一篇连贯、深入的总结性报告。这份报告应能清晰地梳理出用户的思考脉络，总结主要观点和发现，探讨不同节点之间的内在联系，并尝试提炼出潜在的结论、洞见或后续值得探索的方向。
+    // 根据有无 customGuidance 调整 Prompt
+    let systemPrompt = `请仔细分析以下按顺序排列的思维链节点信息。每个节点代表用户浏览和思考的一个步骤，可能包含用户笔记和AI对该节点内容的初步摘要。请基于所有这些信息，生成一篇连贯、深入的总结性报告。这份报告应能清晰地梳理出用户的思考脉络，总结主要观点和发现，探讨不同节点之间的内在联系，并尝试提炼出潜在的结论、洞见或后续值得探索的方向。
+`;
 
+    if (customGuidance && customGuidance.trim() !== '') {
+      systemPrompt += `
+用户为本次总结提供了以下额外的指导说明，请在生成报告时重点参考：
+"${customGuidance.trim()}"
+`;
+    }
+
+    systemPrompt += `
 以下是详细的节点信息：
 
 ${inputText}
 
-请根据以上全部内容，生成一份结构清晰、内容丰富的总结报告：`;
-    console.log("设计的Prompt (部分预览):\n", prompt.substring(0, 300) + "...");
+请根据以上全部内容（并特别关注用户提供的额外指导，如有），生成一份结构清晰、内容丰富、**并使用Markdown格式进行排版的总结报告**。报告中应适当使用标题 (例如 ## 标题, ### 副标题)、列表 (例如 - 项目符号) 和重点强调 (例如 **粗体文本**) 等Markdown元素来增强可读性。请直接输出Markdown文本，不要包含任何额外的解释或开头结尾的客套话：`;
     
-    // --- AI 调用部分暂时返回一个固定的模拟总结字符串 (步骤 3.2 from PLAN_ChainSummary_V1.md) ---
-    const mockSummaryDoc = `这是一个关于思维链 (ID: ${chainId}) 的模拟AI总结报告。该链包含 ${nodes.length} 个节点。\n第一个节点标题为: "${nodes[0]?.title || 'N/A'}"。\n我们分析了从节点思考的脉络，总结了主要观点和发现。这份报告体现了用户从初步观察到深入思考的过程。`;
+    console.log("最终构造的AI输入 (部分预览):\n", systemPrompt.substring(0, 900) + "...");
+
+    // --- 开始真实AI调用 --- 
+    const chainSummaryConfig = AI_CONFIG.chainSummary;
+    const options = {
+      modelName: chainSummaryConfig.defaultModel,
+      temperature: chainSummaryConfig.temperature,
+      maxTokens: chainSummaryConfig.maxTokens,
+      // 如果需要在adapter中覆盖默认的chunkSize和chunkOverlap，可以在这里从chainSummaryConfig中读取并传入
+      // chunkSize: chainSummaryConfig.chunkSize, 
+      // chunkOverlap: chainSummaryConfig.chunkOverlap,
+      // userNotes: "", // 对于链总结，核心内容已在systemPrompt中，userNotes可能不需要或有其他用途
+    };
+
+    console.log(`准备调用AI进行链总结，使用模型: ${options.modelName}, 温度: ${options.temperature}, 最大Token: ${options.maxTokens}`);
+
+    const generatedDoc = await callOffscreenToGenerateSummary(systemPrompt, OPENAI_API_KEY, options);
     
-    console.log('模拟AI调用，返回固定总结:', mockSummaryDoc);
+    console.log(`AI链总结已生成，长度: ${generatedDoc.length}。内容 (部分预览):`, generatedDoc.substring(0, 200) + "...");
     
-    // 模拟AI处理延迟
-    await new Promise(resolve => setTimeout(resolve, 1500)); 
-    
-    // 假设AI调用成功，并存储
-    await storageService.updateChainSummaryDoc(chainId, mockSummaryDoc);
-    
-    sendResponse({ success: true, generatedDoc: mockSummaryDoc });
+    await storageService.updateChainSummaryDoc(chainId, generatedDoc);
+    sendResponse({ success: true, generatedDoc: generatedDoc });
 
   } catch (error) {
-    console.error(`生成链总结失败 (Chain ID: ${chainId}):`, error);
-    sendResponse({ success: false, error: error.message });
+    const errorMessage = error.message || '生成链总结时发生未知错误';
+    console.error(`生成链总结失败 (Chain ID: ${chainId}):`, errorMessage, error);
+    try {
+      await storageService.updateChainSummaryDoc(chainId, `AI链总结生成失败: ${errorMessage}`);
+    } catch (storageErr) {
+      console.error(`存储链总结错误信息时也发生错误 (Chain ID: ${chainId}):`, storageErr);
+    }
+    sendResponse({ success: false, error: errorMessage });
   }
 } 

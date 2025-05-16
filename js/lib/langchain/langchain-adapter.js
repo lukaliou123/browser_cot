@@ -20,19 +20,32 @@ import { PromptTemplate } from "@langchain/core/prompts";
  * @param {string} apiKey - The OpenAI API key
  * @param {Object} options - Additional options
  * @param {string} [options.userNotes=''] - Optional user notes to guide the summarization
- * @param {number} [options.maxLength=1000] - Maximum length of text to summarize per chunk
+ * @param {number} [options.chunkSize=1000] - Maximum length of text to summarize per chunk
+ * @param {number} [options.chunkOverlap=50] - Overlap between chunks
  * @param {boolean} [options.mockMode=false] - Explicitly pass mockMode
+ * @param {string} [options.modelName='gpt-4o-mini'] - Model name to use
+ * @param {number} [options.temperature=0.3] - Temperature for the model
+ * @param {number} [options.maxTokens=500] - Maximum number of tokens to generate
  * @returns {Promise<string>} - The generated summary
  */
 export async function generateSummary(text, apiKey, options = {}) {
   try {
-    // Default options
-    const { 
-      userNotes = '', 
-      maxLength = 1000,
-      mockMode = false
+    // Default options and parameters from options
+    const {
+      userNotes = '',
+      // For text splitter - chunkSize was previously maxLength
+      chunkSize = options.chunkSize || 1000, // Default chunkSize for text splitter
+      chunkOverlap = options.chunkOverlap || 50, // Default chunkOverlap for text splitter
+      mockMode = false,
+      // For OpenAI model - allow overriding from options
+      modelName = options.modelName || 'gpt-4o-mini', // Default model if not provided in options
+      temperature = options.temperature !== undefined ? options.temperature : 0.3, // Default temp if not in options
+      maxTokens = options.maxTokens || 500 // Default maxTokens if not in options
     } = options;
-    
+
+    // console.log('generateSummary options received:', options);
+    // console.log('Using modelName:', modelName, 'temp:', temperature, 'maxTokens:', maxTokens, 'chunkSize:', chunkSize);
+
     let currentOpenAI;
     let currentLoadSummarizationChain;
     let currentRecursiveCharacterTextSplitter;
@@ -49,17 +62,18 @@ export async function generateSummary(text, apiKey, options = {}) {
       currentRecursiveCharacterTextSplitter = RecursiveCharacterTextSplitter;
     }
     
-    // Create OpenAI model instance with the provided API key
+    // Create OpenAI model instance with the provided API key and resolved parameters
     const model = new currentOpenAI({ 
       openAIApiKey: apiKey,
-      temperature: 0.3,
-      modelName: 'gpt-4o-mini'
+      temperature: temperature,
+      modelName: modelName,
+      maxTokens: maxTokens // Pass maxTokens to the model if supported/needed by the specific model class
     });
     
     // Split the text into chunks if it's too long
     const textSplitter = new currentRecursiveCharacterTextSplitter({
-      chunkSize: maxLength,
-      chunkOverlap: 50
+      chunkSize: chunkSize, // Use resolved chunkSize
+      chunkOverlap: chunkOverlap // Use resolved chunkOverlap
     });
     
     // Prepare the text with user notes if available

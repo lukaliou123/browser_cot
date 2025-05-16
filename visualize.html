@@ -4,12 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>思维链可视化</title>
-  <!-- 使用本地D3.js库文件而不是CDN -->
+  <!-- D3.js -->
   <script src="js/lib/d3.v7.min.js"></script>
-  <!-- 引入Readability.js相关库 -->
-  <script src="js/lib/readability/JSDOMParser.js"></script>
+  <!-- Readability.js (JSDOMParser might not be strictly needed in browser context if Readability handles string input directly or via DOMParser) -->
+  <script src="js/lib/readability/JSDOMParser.js"></script> 
   <script src="js/lib/readability/Readability.js"></script>
-  <!-- 引入我们的可视化脚本，使用 type="module" 支持 import/export -->
+  <!-- Markdown Rendering Libraries -->
+  <script src="js/lib/marked.min.js"></script> 
+  <script src="js/lib/purify.min.js"></script> <!-- DOMPurify for sanitizing HTML, optional but recommended -->
+  <!-- Main visualization script (module) -->
   <script type="module" src="visualize.js"></script>
   <style>
     body {
@@ -418,16 +421,18 @@
         <button id="closeChainSummaryModal" class="modal-close" title="关闭">&times;</button>
       </div>
       <div class="modal-body">
-        <div id="chainSummaryContent">
-          <!-- 报告内容将填充此处 -->
+        <div id="chainSummaryContentDisplay" style="margin-bottom: 15px; border: 1px solid #f0f0f0; padding: 10px; max-height: 40vh; overflow-y: auto; background-color: #fdfdfd; display: none;">
+          <!-- 已存在的报告内容将填充此处 -->
+        </div>
+        <div>
+          <label for="chainSummaryGuidanceInput" style="display: block; margin-bottom: 5px; font-weight: 500;">可选指导说明:</label>
+          <textarea id="chainSummaryGuidanceInput" placeholder="例如：请重点分析各个节点在技术选型上的差异，并总结其对项目进度的影响。" style="width: 100%; min-height: 60px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></textarea>
         </div>
       </div>
-      <!-- 可选的页脚，例如用于放置"重新生成"或"编辑"按钮 (未来功能) -->
-      <!-- 
-      <div class="modal-footer">
-        <button class="btn-cancel">关闭</button> 
+      <div class="modal-footer" style="border-top: 1px solid #eee; padding-top: 15px; margin-top: 0;">
+        <button id="chainSummaryActionBtn" class="btn btn-save">生成报告</button> 
+        <!-- 按钮文本会动态改变 -->
       </div>
-      -->
     </div>
   </div>
   
