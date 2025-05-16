@@ -1,0 +1,30 @@
+{
+  "name": "browser_cot",
+  "version": "1.0.0",
+  "description": "一个帮助用户记录和可视化网页浏览思维过程的Chrome扩展。",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:offscreen": "esbuild offscreen_langchain_handler.js --bundle --outfile=dist/offscreen_bundle.js --format=esm --platform=browser --sourcemap",
+    "watch:offscreen": "esbuild offscreen_langchain_handler.js --bundle --outfile=dist/offscreen_bundle.js --format=esm --platform=browser --sourcemap --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lukaliou123/browser_cot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/lukaliou123/browser_cot/issues"
+  },
+  "homepage": "https://github.com/lukaliou123/browser_cot#readme",
+  "devDependencies": {
+    "esbuild": "^0.25.4"
+  },
+  "dependencies": {
+    "@langchain/openai": "^0.5.10",
+    "@langchain/textsplitters": "^0.1.0",
+    "langchain": "^0.3.25"
+  }
+}

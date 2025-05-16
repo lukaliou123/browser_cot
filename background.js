@@ -7,9 +7,15 @@
 import { createThoughtNode } from './js/models.js';
 import { storageService } from './js/storage.js';
 import { extractArticle } from './js/lib/readability/readability-adapter.js';
+// 不再直接导入langchain-adapter，改为通过Offscreen Document调用
+// import { generateSummary } from './js/lib/langchain/langchain-adapter.js';
+import { OPENAI_API_KEY, AI_CONFIG } from './js/config.js';
 
 // 存储初始化标志
 let isInitialized = false;
+
+// Offscreen Document 状态
+let isOffscreenDocumentReady = false;
 
 // 初始化应用
 chrome.runtime.onInstalled.addListener(async () => {
@@ -267,55 +273,237 @@ async function sendToVisualizeForProcessing(htmlContent, url) {
  * @returns {string} 处理后的文本
  */
 function preprocessTextContent(textContent) {
-  if (!textContent) {
-    return '';
-  }
-
-  // 移除多余的空行
-  let processed = textContent.replace(/\n{3,}/g, '\n\n');
-  
-  // 移除行首行尾的空白
-  processed = processed.split('\n')
-    .map(line => line.trim())
-    .join('\n');
-  
-  // 截断过长的文本 (临时方案，后续会由LangChain的分割器更好地处理)
-  const maxLength = 10000;
-  if (processed.length > maxLength) {
-    processed = processed.substring(0, maxLength) + '...';
-    console.log(`文本过长，已截断至 ${maxLength} 字符`);
-  }
-  
-  return processed;
+  // 简单预处理：移除多余的空白字符，替换多个换行为一个
+  if (typeof textContent !== 'string') return '';
+  return textContent.replace(/\s+/g, ' ').replace(/ (\r?\n)+ /g, '\n').trim();
 }
 
 /**
- * 模拟生成节点AI摘要并更新存储
- * @param {ThoughtNode} node - 刚添加的思维节点对象 (应包含id和title)
+ * 使用AI生成节点摘要并更新存储
+ * @param {ThoughtNode} node - 刚添加的思维节点对象 (应包含id和title和url)
  * @param {string} chainId - 节点所属的思维链ID
  */
-async function simulateAndUpdateNodeAISummary(node, chainId) {
-  if (!node || !node.id || !node.title || !chainId) {
-    console.warn('simulateAndUpdateNodeAISummary: 缺少必要的node信息或chainId。', { node, chainId });
-    return;
+async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
+  await ensureInitialized();
+  console.log(`开始为节点 ${node.id} (${node.title}) 生成真实AI摘要...`);
+
+  try {
+    // --- 开始：避免重复生成摘要的检查 ---
+    const currentNodeState = await storageService.getNodeById(chainId, node.id);
+    if (currentNodeState && currentNodeState.aiSummary && 
+        !currentNodeState.aiSummary.startsWith('AI摘要生成失败') && 
+        currentNodeState.aiSummary.trim() !== '') {
+      console.log(`节点 ${node.id} (${node.title}) 已存在有效AI摘要，跳过生成。摘要:`, currentNodeState.aiSummary.substring(0,100) + "...");
+      return; // 直接返回，不继续执行
+    }
+    // --- 结束：避免重复生成摘要的检查 ---
+
+    // 1. 获取网页内容
+    const htmlContent = await fetchWebPageContent(node.url);
+    
+    // 2. 提取主要内容（使用混合策略）
+    console.log(`提取主要内容...`);
+    const article = await extractMainContent(htmlContent, node.url);
+    
+    // 3. 预处理文本（如果尚未处理）
+    console.log(`预处理文本...`);
+    const processedText = article.content || preprocessTextContent(article.textContent);
+    
+    // 4. 通过Offscreen Document调用LangChain.js生成摘要
+    console.log(`通过Offscreen Document调用LangChain.js生成摘要...`);
+    const userNotes = node.notes || '';
+    
+    // 根据配置创建调用选项
+    const options = {
+      userNotes: userNotes,
+      maxLength: AI_CONFIG.summary.chunkSize,
+      maxTokens: AI_CONFIG.summary.maxTokens,
+      temperature: AI_CONFIG.summary.temperature
+    };
+    
+    // 使用Offscreen Document生成摘要
+    let summary;
+    try {
+      summary = await callOffscreenToGenerateSummary(processedText, OPENAI_API_KEY, options);
+      console.log(`AI摘要生成成功，长度: ${summary.length} 字符`);
+    } catch (aiError) {
+      console.error(`AI摘要生成失败:`, aiError);
+      // 失败后生成一个基础摘要作为回退
+      summary = `无法生成AI摘要: ${aiError.message}。页面标题: ${node.title}`;
+    }
+    
+    // 5. 将摘要保存到存储
+    const success = await storageService.updateNodeAISummary(chainId, node.id, summary);
+    if (success) {
+      console.log(`节点 "${node.title}" (ID: ${node.id}) 的AI摘要已成功存储。`);
+    } else {
+      console.warn(`存储节点 "${node.title}" (ID: ${node.id}) 的AI摘要失败。`);
+    }
+    
+    return { success, summary };
+  } catch (error) {
+    console.error(`为节点 "${node.title}" (ID: ${node.id}) 生成或更新AI摘要时出错:`, error);
+    
+    // 尝试保存错误信息作为摘要
+    try {
+      const errorSummary = `摘要生成失败: ${error.message}`;
+      await storageService.updateNodeAISummary(chainId, node.id, errorSummary);
+    } catch (storageError) {
+      console.error('保存错误摘要时也失败了:', storageError);
+    }
+    
+    return { success: false, error };
+  }
+}
+
+/**
+ * 创建并确保Offscreen Document已准备就绪
+ * @returns {Promise<boolean>} 是否成功创建/准备Offscreen Document
+ */
+async function ensureOffscreenDocumentReady() {
+  // 如果之前已确认模块加载完毕，则直接返回true
+  if (isOffscreenDocumentReady) { // isOffscreenDocumentReady 现在表示模块也加载好了
+    console.log('Offscreen Document 及其模块已准备就绪');
+    return true;
   }
 
-  console.log(`开始为节点 "${node.title}" (ID: ${node.id}) 模拟生成AI摘要...`);
-
-  // 模拟AI处理延迟
-  await new Promise(resolve => setTimeout(resolve, 2000)); // 模拟2秒延迟
-
-  const sampleSummary = `这是一个AI生成的关于【${node.title}】的示例摘要内容...`;
+  console.log('准备或检查Offscreen Document...');
   
   try {
-    const success = await storageService.updateNodeAISummary(chainId, node.id, sampleSummary);
-    if (success) {
-      console.log(`节点 "${node.title}" (ID: ${node.id}) 的模拟AI摘要已成功存储。`);
+    // 检查是否已存在Offscreen Document，使用hasDocument而不是getContexts
+    const hasExistingDocument = await chrome.offscreen.hasDocument();
+    console.log('检查是否存在Offscreen Document:', hasExistingDocument);
+    
+    if (hasExistingDocument) {
+      console.log('检测到Offscreen Document已存在。');
+      // 虽然存在，但我们仍需确认其内部模块是否已加载
+      // isOffscreenDocumentReady 为 false 意味着上次可能只加载了html或模块加载失败
     } else {
-      console.warn(`存储节点 "${node.title}" (ID: ${node.id}) 的模拟AI摘要失败。`);
+      console.log('没有活动的Offscreen Document，尝试创建...');
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['IFRAME_SCRIPTING'],
+        justification: '用于执行LangChain.js API调用'
+      });
+      console.log('Offscreen Document创建指令已发送。');
+      // 创建后需要等待它的 'offscreenReady' status: 'loading' 或 'loaded' 消息
     }
+
+    // 等待Offscreen Document发送模块加载完成的消息
+    return new Promise((resolve) => {
+      const messageListener = (message, sender) => {
+        // 确保消息来自Offscreen Document
+        if (sender.url && sender.url.endsWith('/offscreen.html')) {
+          if (message.action === 'offscreenReady') {
+            if (message.status === 'loaded') {
+              chrome.runtime.onMessage.removeListener(messageListener);
+              isOffscreenDocumentReady = true; // 现在表示模块已加载
+              console.log('Offscreen Document报告：模块已加载就绪。');
+              resolve(true);
+            } else if (message.status === 'loading') {
+              console.log('Offscreen Document报告：正在加载中...');
+              // 继续等待 'loaded' 状态
+            }
+          } else if (message.action === 'offscreenError') {
+            chrome.runtime.onMessage.removeListener(messageListener);
+            console.error('Offscreen Document报告错误:', message.error);
+            isOffscreenDocumentReady = false; // 明确标记为未就绪
+            resolve(false);
+          }
+        }
+      };
+      chrome.runtime.onMessage.addListener(messageListener);
+      
+      // 设置总超时，防止无限等待
+      setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(messageListener);
+        if (!isOffscreenDocumentReady) { // 只有当仍未就绪时才报告超时
+            console.error('等待Offscreen Document模块加载就绪超时。');
+            isOffscreenDocumentReady = false;
+            resolve(false);
+        }
+      }, 15000); // 增加超时时间，因为CDN加载可能需要时间
+    });
   } catch (error) {
-    console.error(`为节点 "${node.title}" (ID: ${node.id}) 更新AI摘要时出错:`, error);
+    console.error('创建或检查Offscreen Document失败:', error);
+    isOffscreenDocumentReady = false;
+    return false;
+  }
+}
+
+/**
+ * 通过Offscreen Document调用LangChain生成摘要
+ * @param {string} text - 要摘要的文本
+ * @param {string} apiKey - OpenAI API密钥
+ * @param {Object} options - 其他选项
+ * @returns {Promise<string>} 生成的摘要
+ */
+async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
+  // 确保Offscreen Document存在，不再等待ready状态
+  try {
+    // 检查是否已存在Offscreen Document
+    const hasDocument = await chrome.offscreen.hasDocument();
+    console.log('检查是否存在Offscreen Document:', hasDocument);
+    
+    if (!hasDocument) {
+      console.log('需要创建Offscreen Document...');
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['IFRAME_SCRIPTING'],
+        justification: '用于执行LangChain.js API调用'
+      });
+      console.log('Offscreen Document创建完成');
+      
+      // 等待一小段时间让Offscreen Document完成初始化
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } else {
+      console.log('Offscreen Document已存在，直接使用');
+    }
+    
+    // 直接发送生成摘要请求到Offscreen Document，不再等待ready状态
+    console.log('向Offscreen Document发送摘要请求...');
+    return new Promise((resolve, reject) => {
+      // 设置一个较长的超时时间
+      const timeoutId = setTimeout(() => {
+        reject(new Error('摘要请求超时，可能是Offscreen Document无响应'));
+      }, 30000); // 30秒超时，给予充分时间响应
+      
+      chrome.runtime.sendMessage(
+        {
+          action: 'generateSummary',
+          text: text,
+          apiKey: apiKey,
+          options: options
+        },
+        (response) => {
+          clearTimeout(timeoutId); // 清除超时定时器
+          
+          if (chrome.runtime.lastError) {
+            console.error('摘要请求发送失败:', chrome.runtime.lastError);
+            reject(new Error(`与Offscreen Document通信失败: ${chrome.runtime.lastError.message}`));
+            return;
+          }
+          
+          if (!response) {
+            reject(new Error('Offscreen Document没有返回响应'));
+            return;
+          }
+          
+          if (!response.success) {
+            console.error('摘要生成失败:', response.error);
+            reject(new Error(response.error || '生成摘要失败'));
+            return;
+          }
+          
+          console.log('成功收到摘要响应!');
+          resolve(response.summary);
+        }
+      );
+    });
+  } catch (error) {
+    console.error('调用Offscreen Document失败:', error);
+    // 返回一个模拟摘要，作为最后的降级处理
+    return `[降级摘要] 由于技术原因无法生成真实摘要。错误: ${error.message}`;
   }
 }
 
@@ -345,7 +533,7 @@ async function testContentFetchAndExtraction(url) {
     });
     
     // 3. 文本预处理
-    const processedText = preprocessTextContent(article.textContent);
+    const processedText = article.content || preprocessTextContent(article.textContent);
     console.log(`处理后的文本长度: ${processedText.length} 字符`);
     console.log('处理后的文本预览:', processedText.substr(0, 150) + '...');
     
@@ -505,6 +693,72 @@ if (typeof self !== 'undefined') {
       console.groupEnd();
     }
   };
+  
+  // 测试真实AI摘要生成
+  self.testRealAISummary = async function(url, userNotes = '') {
+    console.group('真实AI摘要生成测试');
+    console.log(`URL: ${url}`);
+    console.log(`用户笔记: ${userNotes || '(无)'}`);
+    
+    try {
+      // 1. 获取网页内容
+      console.log('步骤1: 获取网页内容...');
+      const htmlContent = await fetchWebPageContent(url);
+      
+      // 2. 提取主要内容（使用混合策略）
+      console.log('步骤2: 使用混合策略提取主要内容...');
+      const article = await extractMainContent(htmlContent, url);
+      
+      // 3. 处理文本（如果尚未处理）
+      console.log('步骤3: 文本预处理...');
+      const processedText = article.content || preprocessTextContent(article.textContent);
+      
+      console.log('文章标题:', article.title);
+      console.log('提取方法:', article.isBasicExtraction ? '基础HTML处理' : '高级提取（Readability）');
+      console.log('处理后文本长度:', processedText.length, '字符');
+      console.log('处理后文本预览:', processedText.substring(0, 150) + '...');
+      
+      // 4. 调用真实AI生成摘要 (通过 Offscreen Document)
+      console.log('步骤4: 调用真实AI生成摘要 (通过 Offscreen Document)...');
+      console.log('使用API密钥:', OPENAI_API_KEY.substring(0, 10) + '...' + OPENAI_API_KEY.substring(OPENAI_API_KEY.length - 5));
+      console.log('使用模型:', AI_CONFIG.summary.defaultModel);
+      
+      const options = {
+        userNotes: userNotes,
+        maxLength: AI_CONFIG.summary.chunkSize,
+        maxTokens: AI_CONFIG.summary.maxTokens,
+        temperature: AI_CONFIG.summary.temperature,
+        model: AI_CONFIG.summary.defaultModel // 确保传递模型名称
+      };
+      
+      // 修改为调用 Offscreen Document
+      const startTime = Date.now();
+      const summary = await callOffscreenToGenerateSummary(processedText, OPENAI_API_KEY, options);
+      const duration = Date.now() - startTime;
+      
+      console.log('AI摘要生成完成!');
+      console.log('摘要长度:', summary.length, '字符');
+      console.log('生成耗时:', (duration / 1000).toFixed(2), '秒');
+      console.log('AI摘要内容:');
+      console.log(summary);
+      
+      return {
+        success: true,
+        title: article.title,
+        extractionMethod: article.isBasicExtraction ? 'basic' : 'advanced',
+        summary: summary,
+        duration: duration
+      };
+    } catch (error) {
+      console.error('AI摘要生成测试失败:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    } finally {
+      console.groupEnd();
+    }
+  };
 }
 
 // 监听来自popup或content script的消息
@@ -603,25 +857,23 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
         const result = await storageService.addNodeToChain(node);
         
         if (result && result.success) {
-          // 成功添加节点后，为其模拟生成AI摘要
-          // node 对象在 createThoughtNode 时已经有了 title，在 addNodeToChain 内部被赋予了id
-          // result.chainId 是节点所属的链ID
-          simulateAndUpdateNodeAISummary(node, result.chainId);
+          // 成功添加节点后，为其生成真实AI摘要
+          generateRealNodeAISummaryAndUpdateStorage(node, result.chainId);
 
-          // 可选：通知用户已记录（如使用chrome.notifications）
+          // 通知用户已记录
           chrome.notifications?.create({
             type: 'basic',
             iconUrl: 'images/icon48.png',
-            title: 'Thought Captured & AI Summary Pending', // 更新通知标题
-            message: `Page added to chain. Simulated AI summary for "${node.title}" will be generated.` // 更新通知消息
+            title: '页面已添加并正在生成AI摘要',
+            message: `页面 "${node.title}" 已添加到思维链。AI摘要正在生成中，请稍后在可视化界面查看。`
           });
         } else {
-          // 添加失败的通知 (可选)
+          // 添加失败的通知
           chrome.notifications?.create({
             type: 'basic',
             iconUrl: 'images/icon48.png',
-            title: 'Capture Failed',
-            message: 'Failed to add page to thought chain.'
+            title: '添加失败',
+            message: '无法将页面添加到思维链。'
           });
         }
       }
@@ -645,8 +897,8 @@ async function handleAddNode(nodeData, callback) {
     const result = await storageService.addNodeToChain(node);
     
     if (result && result.success) {
-      // 成功添加节点后，为其模拟生成AI摘要
-      simulateAndUpdateNodeAISummary(node, result.chainId);
+      // 成功添加节点后，为其生成真实AI摘要
+      generateRealNodeAISummaryAndUpdateStorage(node, result.chainId);
     }
 
     if (callback) {

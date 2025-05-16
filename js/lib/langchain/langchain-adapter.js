@@ -2,9 +2,13 @@
  * LangChain Adapter for Chrome Extension
  * 
  * This file provides an adapter for using LangChain.js in a Chrome extension.
- * It loads the necessary LangChain components from CDN and provides a simple API
- * for generating summaries.
+ * It now uses statically imported Langchain modules that will be bundled.
  */
+
+import { ChatOpenAI } from "@langchain/openai";
+import { loadSummarizationChain } from "langchain/chains";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import { PromptTemplate } from "@langchain/core/prompts";
 
 // We'll use CDN imports for LangChain to avoid bundling complexity
 // These will be dynamically imported when needed
@@ -17,6 +21,7 @@
  * @param {Object} options - Additional options
  * @param {string} [options.userNotes=''] - Optional user notes to guide the summarization
  * @param {number} [options.maxLength=1000] - Maximum length of text to summarize per chunk
+ * @param {boolean} [options.mockMode=false] - Explicitly pass mockMode
  * @returns {Promise<string>} - The generated summary
  */
 export async function generateSummary(text, apiKey, options = {}) {
@@ -24,23 +29,35 @@ export async function generateSummary(text, apiKey, options = {}) {
     // Default options
     const { 
       userNotes = '', 
-      maxLength = 1000
+      maxLength = 1000,
+      mockMode = false
     } = options;
     
-    // Dynamically import LangChain modules from CDN
-    const { OpenAI } = await import('https://cdn.jsdelivr.net/npm/@langchain/openai@0.0.14/+esm');
-    const { loadSummarizationChain } = await import('https://cdn.jsdelivr.net/npm/langchain@0.1.16/+esm');
-    const { RecursiveCharacterTextSplitter } = await import('https://cdn.jsdelivr.net/npm/langchain@0.1.16/text_splitter/+esm');
+    let currentOpenAI;
+    let currentLoadSummarizationChain;
+    let currentRecursiveCharacterTextSplitter;
+
+    if (mockMode) {
+      console.log('Offscreen Document: 使用模拟的Langchain实现...');
+      currentOpenAI = MockOpenAI;
+      currentLoadSummarizationChain = mockLoadSummarizationChain;
+      currentRecursiveCharacterTextSplitter = MockTextSplitter;
+    } else {
+      console.log('Offscreen Document: 使用真实的Langchain实现 (statically imported)...');
+      currentOpenAI = ChatOpenAI;
+      currentLoadSummarizationChain = loadSummarizationChain;
+      currentRecursiveCharacterTextSplitter = RecursiveCharacterTextSplitter;
+    }
     
     // Create OpenAI model instance with the provided API key
-    const model = new OpenAI({ 
+    const model = new currentOpenAI({ 
       openAIApiKey: apiKey,
       temperature: 0.3,
-      modelName: 'gpt-3.5-turbo'
+      modelName: 'gpt-4o-mini'
     });
     
     // Split the text into chunks if it's too long
-    const textSplitter = new RecursiveCharacterTextSplitter({
+    const textSplitter = new currentRecursiveCharacterTextSplitter({
       chunkSize: maxLength,
       chunkOverlap: 50
     });
@@ -55,7 +72,7 @@ export async function generateSummary(text, apiKey, options = {}) {
     const docs = await textSplitter.createDocuments([processedText]);
     
     // Load and use the summarization chain
-    const chain = loadSummarizationChain(model, { type: "map_reduce" });
+    const chain = currentLoadSummarizationChain(model, { type: "map_reduce" });
     const result = await chain.call({
       input_documents: docs
     });
