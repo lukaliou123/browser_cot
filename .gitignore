@@ -1,5 +1,3 @@
-
-
 # 忽略node模块(如果之后使用)
 node_modules/
 
@@ -27,6 +25,11 @@ iterated_log/
 # 忽略打包的扩展文件 (如果生成)
 *.zip
 *.crx
+
+# 忽略API密钥配置文件
+js/config.js
+
+
 
 # 注意：js/config.js 文件本身应被版本控制，因为它提供了配置模板。
 # 用户在填入自己的API密钥后，应自行避免将修改后的 js/config.js 提交到公共仓库。

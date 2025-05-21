@@ -367,6 +367,15 @@
     
     <div id="visualization"></div>
     <div id="message">正在加载...</div>
+    <div id="fixed-summary-panel" style="display: none; border: 1px solid #ccc; padding: 10px; margin-top: 10px; margin-bottom:10px; max-width: 100%; overflow-wrap: break-word;">
+      <h4 id="fixed-summary-title">AI 摘要</h4>
+      <div id="fixed-summary-content" style="white-space: pre-wrap;"></div>
+      <div style="margin-top: 10px;">
+        <button id="copy-summary-btn" class="btn" style="margin-right: 10px;">复制摘要</button>
+        <button id="open-original-url-btn" class="btn" style="margin-right: 10px;">打开原始链接</button>
+        <button id="regenerate-summary-btn" class="btn" style="display: none;">重新生成摘要</button>
+      </div>
+    </div>
     <div id="tooltip">
       <div class="tooltip-notes"></div>
       <div class="tooltip-ai-summary"></div>

@@ -279,11 +279,13 @@ function preprocessTextContent(textContent) {
 }
 
 /**
- * 使用AI生成节点摘要并更新存储
- * @param {ThoughtNode} node - 刚添加的思维节点对象 (应包含id和title和url)
- * @param {string} chainId - 节点所属的思维链ID
+ * 为节点生成真实AI摘要并更新存储
+ * @param {Object} node - 节点数据
+ * @param {string} chainId - 思维链ID
+ * @param {boolean} forceRegenerate - 是否强制重新生成，即使已存在有效摘要
+ * @returns {Promise<Object>} 操作结果
  */
-async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
+async function generateRealNodeAISummaryAndUpdateStorage(node, chainId, forceRegenerate = false) {
   await ensureInitialized();
   console.log(`开始为节点 ${node.id} (${node.title}) 生成真实AI摘要...`);
 
@@ -291,7 +293,6 @@ async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
   if (!OPENAI_API_KEY) {
     const warningMessage = 'OpenAI API 密钥未在 js/config.js 中配置。AI摘要功能将不可用。请配置后重试或手动添加摘要。';
     console.warn(warningMessage);
-    // 尝试保存警告信息作为摘要
     try {
       await storageService.updateNodeAISummary(chainId, node.id, `AI摘要功能未配置: ${warningMessage}`);
     } catch (storageError) {
@@ -301,51 +302,55 @@ async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
   }
 
   try {
+    const settings = await storageService.getSettings();
+    const targetLanguage = settings.aiLanguage || 'zh-CN';
+    console.log(`使用用户选择的语言: ${targetLanguage}`);
+    
     // --- 开始：避免重复生成摘要的检查 ---
-    const currentNodeState = await storageService.getNodeById(chainId, node.id);
-    if (currentNodeState && currentNodeState.aiSummary && 
-        !currentNodeState.aiSummary.startsWith('AI摘要生成失败') && 
-        currentNodeState.aiSummary.trim() !== '') {
-      console.log(`节点 ${node.id} (${node.title}) 已存在有效AI摘要，跳过生成。摘要:`, currentNodeState.aiSummary.substring(0,100) + "...");
-      return; // 直接返回，不继续执行
+    if (!forceRegenerate) {
+      const currentNodeState = await storageService.getNodeById(chainId, node.id);
+      if (currentNodeState && currentNodeState.aiSummary && 
+          !currentNodeState.aiSummary.startsWith('AI摘要生成失败') && 
+          currentNodeState.aiSummary.trim() !== '') {
+        console.log(`节点 ${node.id} (${node.title}) 已存在有效AI摘要，跳过生成。摘要:`, currentNodeState.aiSummary.substring(0,100) + "...");
+        return { success: true, summary: currentNodeState.aiSummary }; // 返回现有摘要
+      }
+    } else {
+      console.log(`强制重新生成节点 ${node.id} (${node.title}) 的AI摘要...`);
     }
     // --- 结束：避免重复生成摘要的检查 ---
 
-    // 1. 获取网页内容
     const htmlContent = await fetchWebPageContent(node.url);
-    
-    // 2. 提取主要内容（使用混合策略）
-    console.log(`提取主要内容...`);
     const article = await extractMainContent(htmlContent, node.url);
-    
-    // 3. 预处理文本（如果尚未处理）
-    console.log(`预处理文本...`);
     const processedText = article.content || preprocessTextContent(article.textContent);
-    
-    // 4. 通过Offscreen Document调用LangChain.js生成摘要
-    console.log(`通过Offscreen Document调用LangChain.js生成摘要...`);
     const userNotes = node.notes || '';
     
-    // 根据配置创建调用选项
+    const systemPrompt = `Please provide a summary in ${targetLanguage}. The content to summarize is about "${article.title || 'the provided text'}". If user notes are available, consider them: "${userNotes}". Respond only with the summary text in ${targetLanguage}.`;
+    
     const options = {
       userNotes: userNotes,
       maxLength: AI_CONFIG.summary.chunkSize,
       maxTokens: AI_CONFIG.summary.maxTokens,
-      temperature: AI_CONFIG.summary.temperature
+      temperature: AI_CONFIG.summary.temperature,
+      targetLanguage: targetLanguage,
+      title: article.title,
+      // Explicitly set system prompt for language guidance
+      systemPrompt: systemPrompt
     };
     
-    // 使用Offscreen Document生成摘要
+    console.log(`为节点生成摘要的配置:
+- 目标语言: ${targetLanguage}
+- 系统提示: ${systemPrompt}`);
+    
     let summary;
     try {
       summary = await callOffscreenToGenerateSummary(processedText, OPENAI_API_KEY, options);
       console.log(`AI摘要生成成功，长度: ${summary.length} 字符`);
     } catch (aiError) {
       console.error(`AI摘要生成失败:`, aiError);
-      // 失败后生成一个基础摘要作为回退
       summary = `无法生成AI摘要: ${aiError.message}。页面标题: ${node.title}`;
     }
     
-    // 5. 将摘要保存到存储
     const success = await storageService.updateNodeAISummary(chainId, node.id, summary);
     if (success) {
       console.log(`节点 "${node.title}" (ID: ${node.id}) 的AI摘要已成功存储。`);
@@ -354,17 +359,15 @@ async function generateRealNodeAISummaryAndUpdateStorage(node, chainId) {
     }
     
     return { success, summary };
+
   } catch (error) {
     console.error(`为节点 "${node.title}" (ID: ${node.id}) 生成或更新AI摘要时出错:`, error);
-    
-    // 尝试保存错误信息作为摘要
     try {
       const errorSummary = `摘要生成失败: ${error.message}`;
       await storageService.updateNodeAISummary(chainId, node.id, errorSummary);
     } catch (storageError) {
       console.error('保存错误摘要时也失败了:', storageError);
     }
-    
     return { success: false, error };
   }
 }
@@ -445,18 +448,18 @@ async function ensureOffscreenDocumentReady() {
 }
 
 /**
- * 通过Offscreen Document调用LangChain生成摘要
+ * 尝试通过Offscreen Document生成摘要的辅助函数
  * @param {string} text - 要摘要的文本
  * @param {string} apiKey - OpenAI API密钥
  * @param {Object} options - 其他选项
+ * @param {number} timeout - 超时时间(毫秒)
  * @returns {Promise<string>} 生成的摘要
  */
-async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
-  if (!apiKey) { // This check is now against the directly imported OPENAI_API_KEY passed by the caller
+async function attemptSummaryGeneration(text, apiKey, options = {}, timeout = 30000) {
+  if (!apiKey) {
     const message = 'OpenAI API 密钥未在 js/config.js 中配置或为空。请在该文件中提供有效的API密钥以使用AI功能。';
     console.warn(message);
-    // No chrome.notifications here for now to keep it simple for demo
-    throw new Error(message); // Throw error to stop further processing
+    throw new Error(message);
   }
   
   // 确保offscreen document准备就绪
@@ -474,19 +477,20 @@ async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
       });
       console.log('Offscreen Document创建完成');
       
-      // 等待一小段时间让Offscreen Document完成初始化
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 等待足够时间让Offscreen Document完成初始化
+      console.log('等待Offscreen Document完成初始化...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
     } else {
       console.log('Offscreen Document已存在，直接使用');
     }
     
-    // 直接发送生成摘要请求到Offscreen Document，不再等待ready状态
+    // 直接发送生成摘要请求到Offscreen Document
     console.log('向Offscreen Document发送摘要请求...');
     return new Promise((resolve, reject) => {
-      // 设置一个较长的超时时间
+      // 设置指定的超时时间
       const timeoutId = setTimeout(() => {
         reject(new Error('摘要请求超时，可能是Offscreen Document无响应'));
-      }, 30000); // 30秒超时，给予充分时间响应
+      }, timeout);
       
       chrome.runtime.sendMessage(
         {
@@ -521,9 +525,77 @@ async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
       );
     });
   } catch (error) {
-    console.error('调用Offscreen Document失败:', error);
-    // 返回一个模拟摘要，作为最后的降级处理
-    return `[降级摘要] 由于技术原因无法生成真实摘要。错误: ${error.message}`;
+    console.error('调用Offscreen Document生成摘要失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 通过Offscreen Document调用LangChain生成摘要
+ * @param {string} text - 要摘要的文本
+ * @param {string} apiKey - OpenAI API密钥
+ * @param {Object} options - 其他选项
+ * @returns {Promise<string>} 生成的摘要
+ */
+async function callOffscreenToGenerateSummary(text, apiKey, options = {}) {
+  console.log('callOffscreenToGenerateSummary: Attempting to ensure a fresh Offscreen Document.');
+  try {
+    // 强制关闭现有的Offscreen Document (如果存在)
+    if (await chrome.offscreen.hasDocument()) {
+      console.log('Closing existing Offscreen Document before generating summary...');
+      await chrome.offscreen.closeDocument();
+      // 等待一小段时间确保完全关闭，并重置内部状态（如果isOffscreenDocumentReady被其他地方使用）
+      await new Promise(resolve => setTimeout(resolve, 300)); 
+      isOffscreenDocumentReady = false; // 假设isOffscreenDocumentReady是全局或模块级状态
+    }
+  } catch (closeError) {
+    // 如果关闭失败，也记录下来，但继续尝试生成，因为attemptSummaryGeneration内部会处理创建
+    console.warn('Failed to close existing Offscreen Document, proceeding anyway:', closeError);
+  }
+
+  try {
+    // 第一次尝试 - 30秒超时
+    console.log('开始第一次摘要生成尝试 (30秒超时)...');
+    // attemptSummaryGeneration内部会检查并创建Offscreen Document (如果需要)
+    return await attemptSummaryGeneration(text, apiKey, options, 30000);
+  } catch (firstError) {
+    // 如果是超时错误，尝试重置Offscreen Document并重试
+    // 注意：此时Offscreen Document可能已经是第二次创建的了
+    if (firstError.message.includes('超时') || firstError.message.includes('无响应')) {
+      console.log('第一次尝试超时，准备重置Offscreen Document并重试 (第二次尝试)...');
+      
+      try {
+        // 再次尝试关闭当前的Offscreen Document (以防第一次关闭后又自动创建了，或者第一次关闭失败)
+        if (await chrome.offscreen.hasDocument()) {
+          console.log('Closing Offscreen Document again before second attempt...');
+          await chrome.offscreen.closeDocument();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          isOffscreenDocumentReady = false;
+        }
+        
+        let processedText = text;
+        const maxTextLength = 12000; 
+        if (text.length > maxTextLength) {
+          console.log(`文本过长(${text.length}字符)，截断至${maxTextLength}字符...`);
+          processedText = text.substring(0, maxTextLength);
+        }
+        
+        console.log('开始第二次摘要生成尝试 (60秒超时)...');
+        return await attemptSummaryGeneration(processedText, apiKey, options, 60000);
+      } catch (secondError) {
+        console.error('第二次尝试也失败:', secondError);
+        try {
+          const article = { title: options.title || "无标题" };
+          const processedTextForFallback = text || ""; // 使用原始文本长度
+          return `[未能生成的基础摘要] ${article.title || "无标题"}\n\n文本长度: ${processedTextForFallback.length} 字符。\n\n由于技术原因无法生成完整AI摘要，这是一个自动生成的简要信息。`;
+        } catch (error) {
+          return `无法生成AI摘要: ${secondError.message || '未知错误'}`;
+        }
+      }
+    } else {
+      console.error('摘要生成失败(非超时错误):', firstError);
+      throw firstError;
+    }
   }
 }
 
@@ -782,52 +854,65 @@ if (typeof self !== 'undefined') {
   };
 }
 
-// 监听来自popup或content script的消息
+// 通讯处理
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // 使用try-catch包装所有消息处理，防止未捕获的异常
-  try {
-    if (message.action === 'addNode') {
-      // 添加新的思维节点
-      handleAddNode(message.node, sendResponse);
-      // 保持消息通道开放，以便异步返回结果
-      return true;
-    } else if (message.action === 'getRecentChains') {
-      // 获取最近的思维链
-      handleGetRecentChains(sendResponse);
-      return true;
-    } else if (message.action === 'getActiveChain') {
-      // 获取当前活动的思维链
-      handleGetActiveChain(sendResponse);
-      return true;
-    } else if (message.action === 'setActiveChain') {
-      // 设置活动思维链
-      handleSetActiveChain(message.chainId, sendResponse);
-      return true;
-    } else if (message.action === 'manualSplitChain') {
-      handleManualSplitChain(sendResponse);
-      return true;
-    } else if (message.action === 'updateChainName') {
-      handleUpdateChainName(message.chainId, message.newName, sendResponse);
-      return true;
-    } else if (message.action === 'deleteChain') {
-      handleDeleteChain(message.chainId, sendResponse);
-      return true;
-    } else if (message.action === 'extractContent') {
-      // 提取URL内容
+  // 确保首先已初始化
+  ensureInitialized();
+  
+  // 根据消息类型分发到对应处理函数
+  switch (message.action) {
+    case "extractContent":
       handleExtractContent(message.url, sendResponse);
-      return true;
-    } else if (message.action === 'getChainSummaryDoc') {
+      break;
+    
+    case "addNode":
+      handleAddNode(message.node, sendResponse);
+      break;
+    
+    case "getRecentChains":
+      handleGetRecentChains(sendResponse);
+      break;
+    
+    case "getActiveChain":
+      handleGetActiveChain(sendResponse);
+      break;
+    
+    case "setActiveChain":
+      handleSetActiveChain(message.chainId, sendResponse);
+      break;
+    
+    case "manualSplitChain":
+      handleManualSplitChain(sendResponse);
+      break;
+    
+    case "updateChainName":
+      handleUpdateChainName(message.chainId, message.newName, sendResponse);
+      break;
+    
+    case "deleteChain":
+      handleDeleteChain(message.chainId, sendResponse);
+      break;
+      
+    case "getChainSummaryDoc":
       handleGetChainSummaryDoc(message.chainId, sendResponse);
-      return true;
-    } else if (message.action === 'requestChainSummary') {
+      break;
+      
+    case "requestChainSummary":
       handleRequestChainSummary(message.chainId, message.nodes, sendResponse, message.customGuidance);
-      return true;
-    }
-  } catch (error) {
-    console.error('处理消息时出错:', error);
-    sendResponse({ success: false, error: error.message });
-    return false;
+      break;
+
+    case "regenerateNodeSummary":
+      handleRegenerateNodeSummary(message.node, message.chainId, sendResponse);
+      break;
+    
+    default:
+      console.warn(`未知的消息类型:`, message);
+      sendResponse({ success: false, error: "未知的消息类型" });
+      break;
   }
+  
+  // 返回true表示我们将异步发送响应
+  return true;
 });
 
 /**
@@ -1113,6 +1198,11 @@ async function handleRequestChainSummary(chainId, nodes, sendResponse, customGui
     await ensureInitialized();
     console.log(`收到生成链总结请求 (Chain ID: ${chainId}), 节点数量: ${nodes.length}, 自定义指导: "${customGuidance}"`);
     
+    // 获取用户语言设置
+    const settings = await storageService.getSettings();
+    const targetLanguage = settings.aiLanguage || 'zh-CN'; // 默认使用中文
+    console.log(`链总结使用用户选择的语言: ${targetLanguage}`);
+    
     // 打印节点数据结构以供调试
     // console.log('接收到的节点数据:', nodes);
 
@@ -1127,7 +1217,7 @@ async function handleRequestChainSummary(chainId, nodes, sendResponse, customGui
     });
 
     // 根据有无 customGuidance 调整 Prompt
-    let systemPrompt = `请仔细分析以下按顺序排列的思维链节点信息。每个节点代表用户浏览和思考的一个步骤，可能包含用户笔记和AI对该节点内容的初步摘要。请基于所有这些信息，生成一篇连贯、深入的总结性报告。这份报告应能清晰地梳理出用户的思考脉络，总结主要观点和发现，探讨不同节点之间的内在联系，并尝试提炼出潜在的结论、洞见或后续值得探索的方向。
+    let systemPrompt = `请仔细分析以下按顺序排列的思维链节点信息。每个节点代表用户浏览和思考的一个步骤，可能包含用户笔记和AI对该节点内容的初步摘要。请基于所有这些信息，生成一篇连贯、深入的总结性报告。这份报告应能清晰地梳理出用户的思考脉络，总结主要观点和发现，探讨不同节点之间的内在联系，并尝试提炼出潜在的结论、洞见或后续值得探索的方向。请提供报告使用${targetLanguage}。
 `;
 
     if (customGuidance && customGuidance.trim() !== '') {
@@ -1142,7 +1232,7 @@ async function handleRequestChainSummary(chainId, nodes, sendResponse, customGui
 
 ${inputText}
 
-请根据以上全部内容（并特别关注用户提供的额外指导，如有），生成一份结构清晰、内容丰富、**并使用Markdown格式进行排版的总结报告**。报告中应适当使用标题 (例如 ## 标题, ### 副标题)、列表 (例如 - 项目符号) 和重点强调 (例如 **粗体文本**) 等Markdown元素来增强可读性。请直接输出Markdown文本，不要包含任何额外的解释或开头结尾的客套话：`;
+请根据以上全部内容（并特别关注用户提供的额外指导，如有），生成一份结构清晰、内容丰富、**并使用${targetLanguage}的Markdown格式进行排版的总结报告**。报告中应适当使用标题 (例如 ## 标题, ### 副标题)、列表 (例如 - 项目符号) 和重点强调 (例如 **粗体文本**) 等Markdown元素来增强可读性。请直接输出Markdown文本，不要包含任何额外的解释或开头结尾的客套话：`;
     
     console.log("最终构造的AI输入 (部分预览):\n", systemPrompt.substring(0, 900) + "...");
 
@@ -1152,13 +1242,10 @@ ${inputText}
       modelName: chainSummaryConfig.defaultModel,
       temperature: chainSummaryConfig.temperature,
       maxTokens: chainSummaryConfig.maxTokens,
-      // 如果需要在adapter中覆盖默认的chunkSize和chunkOverlap，可以在这里从chainSummaryConfig中读取并传入
-      // chunkSize: chainSummaryConfig.chunkSize, 
-      // chunkOverlap: chainSummaryConfig.chunkOverlap,
-      // userNotes: "", // 对于链总结，核心内容已在systemPrompt中，userNotes可能不需要或有其他用途
+      targetLanguage: targetLanguage // 添加语言设置
     };
 
-    console.log(`准备调用AI进行链总结，使用模型: ${options.modelName}, 温度: ${options.temperature}, 最大Token: ${options.maxTokens}`);
+    console.log(`准备调用AI进行链总结，使用模型: ${options.modelName}, 温度: ${options.temperature}, 最大Token: ${options.maxTokens}, 语言: ${options.targetLanguage}`);
 
     const generatedDoc = await callOffscreenToGenerateSummary(systemPrompt, OPENAI_API_KEY, options);
     
@@ -1176,5 +1263,36 @@ ${inputText}
       console.error(`存储链总结错误信息时也发生错误 (Chain ID: ${chainId}):`, storageErr);
     }
     sendResponse({ success: false, error: errorMessage });
+  }
+}
+
+/**
+ * 处理单节点AI摘要重新生成请求
+ * @param {Object} node - 节点数据
+ * @param {string} chainId - 思维链ID
+ * @param {Function} sendResponse - 回调函数
+ */
+async function handleRegenerateNodeSummary(node, chainId, sendResponse) {
+  if (!node || !chainId) {
+    sendResponse({ success: false, error: '节点数据或思维链ID不能为空' });
+    return;
+  }
+
+  console.log(`收到重新生成节点摘要请求: 节点ID=${node.id}, 标题="${node.title}", 链ID=${chainId}`);
+  
+  try {
+    // 直接使用现有的生成和存储函数，并传递 forceRegenerate = true
+    const result = await generateRealNodeAISummaryAndUpdateStorage(node, chainId, true);
+    
+    if (result && result.success) {
+      console.log(`成功重新生成节点 ${node.id} 的摘要`);
+      sendResponse({ success: true, summary: result.summary });
+    } else {
+      console.error(`重新生成节点 ${node.id} 的摘要失败:`, result ? result.error : '未知错误');
+      sendResponse({ success: false, error: result ? result.error.message : '重新生成摘要失败' });
+    }
+  } catch (error) {
+    console.error(`处理重新生成摘要请求时出错:`, error);
+    sendResponse({ success: false, error: error.message || '处理请求时发生错误' });
   }
 } 

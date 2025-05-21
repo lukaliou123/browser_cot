@@ -18,6 +18,13 @@ let currentChainData = null; // 当前思维链数据，用于导出
 let width = 0;
 let height = 0;
 let container = null;
+let fixedSummaryPanel = null;
+let fixedSummaryTitle = null;
+let fixedSummaryContent = null;
+let copySummaryBtn = null;
+let openOriginalUrlBtn = null;
+let regenerateSummaryBtn = null;
+let activeNodeForSummary = null; // 用于存储当前显示摘要的节点数据
 
 // 颜色配置
 const colors = {
@@ -47,6 +54,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 初始化 DOM 引用
   container = document.getElementById('visualization');
   chainSelector = document.getElementById('chain-selector');
+  fixedSummaryPanel = document.getElementById('fixed-summary-panel');
+  fixedSummaryTitle = document.getElementById('fixed-summary-title');
+  fixedSummaryContent = document.getElementById('fixed-summary-content');
+  copySummaryBtn = document.getElementById('copy-summary-btn');
+  openOriginalUrlBtn = document.getElementById('open-original-url-btn');
+  regenerateSummaryBtn = document.getElementById('regenerate-summary-btn');
   
   // 设置画布尺寸
   updateDimensions();
@@ -133,6 +146,78 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 新增：初始化AI链总结报告功能
   initChainSummaryModal();
+
+  // 新增：重新生成摘要按钮事件监听
+  regenerateSummaryBtn.addEventListener('click', async () => {
+    if (!activeNodeForSummary || !currentChainId) {
+      console.warn('无法重新生成摘要：缺少节点数据或思维链ID');
+      return;
+    }
+
+    // 显示加载状态
+    const originalBtnText = regenerateSummaryBtn.textContent;
+    regenerateSummaryBtn.textContent = '生成中...';
+    regenerateSummaryBtn.disabled = true;
+    fixedSummaryContent.textContent = '正在重新生成AI摘要，请稍候...';
+
+    try {
+      // 发送消息到background.js
+      console.log(`正在请求重新生成节点 ${activeNodeForSummary.id} 的摘要...`);
+      const response = await chrome.runtime.sendMessage({
+        action: "regenerateNodeSummary",
+        node: activeNodeForSummary,
+        chainId: currentChainId
+      });
+
+      // 处理响应
+      if (response && response.success) {
+        console.log('摘要重新生成成功:', response.summary);
+        // 更新节点数据
+        activeNodeForSummary.aiSummary = response.summary;
+        // 更新显示
+        fixedSummaryContent.textContent = response.summary;
+        // 隐藏重新生成按钮，因为摘要已成功重新生成
+        regenerateSummaryBtn.style.display = 'none';
+      } else {
+        console.error('摘要重新生成失败:', response ? response.error : '未知错误');
+        fixedSummaryContent.textContent = `重新生成摘要失败: ${response ? response.error : '未知错误'}`;
+      }
+    } catch (error) {
+      console.error('重新生成摘要时出错:', error);
+      fixedSummaryContent.textContent = `重新生成摘要时出错: ${error.message}`;
+    } finally {
+      // 恢复按钮状态
+      regenerateSummaryBtn.textContent = originalBtnText;
+      regenerateSummaryBtn.disabled = false;
+    }
+  });
+
+  // 新增：复制摘要按钮事件监听
+  copySummaryBtn.addEventListener('click', () => {
+    if (fixedSummaryContent.textContent) {
+      navigator.clipboard.writeText(fixedSummaryContent.textContent)
+        .then(() => {
+          const originalText = copySummaryBtn.textContent;
+          copySummaryBtn.textContent = '✓ 已复制';
+          setTimeout(() => {
+            copySummaryBtn.textContent = originalText;
+          }, 2000);
+        })
+        .catch(err => {
+          console.error('复制失败:', err);
+          alert('复制失败，请手动选择文本复制。');
+        });
+    }
+  });
+
+  // 新增：打开原始链接按钮事件监听
+  openOriginalUrlBtn.addEventListener('click', () => {
+    if (activeNodeForSummary && activeNodeForSummary.url) {
+      window.open(activeNodeForSummary.url, '_blank');
+    } else {
+      alert('无法打开链接：该节点没有URL。');
+    }
+  });
 
   // 新增：开始新链按钮事件处理
   const startNewChainBtn = document.getElementById('start-new-chain-btn');
@@ -271,6 +356,81 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (error) {
         console.error('发送 deleteChain 消息时出错:', error);
         alert('操作失败，请查看控制台获取更多信息。');
+      }
+    });
+  }
+
+  // 设置事件监听器
+  if (copySummaryBtn) {
+    copySummaryBtn.addEventListener('click', () => {
+      if (activeNodeForSummary && activeNodeForSummary.aiSummary) {
+        navigator.clipboard.writeText(activeNodeForSummary.aiSummary)
+          .then(() => {
+            // 可以添加复制成功的视觉反馈
+            const originalText = copySummaryBtn.textContent;
+            copySummaryBtn.textContent = '已复制!';
+            setTimeout(() => {
+              copySummaryBtn.textContent = originalText;
+            }, 1500);
+          })
+          .catch(err => {
+            console.error('复制到剪贴板失败:', err);
+            alert('复制到剪贴板失败');
+          });
+      }
+    });
+  }
+  
+  if (openOriginalUrlBtn) {
+    openOriginalUrlBtn.addEventListener('click', () => {
+      if (activeNodeForSummary && activeNodeForSummary.url) {
+        window.open(activeNodeForSummary.url, '_blank');
+      }
+    });
+  }
+  
+  if (regenerateSummaryBtn) {
+    regenerateSummaryBtn.addEventListener('click', async () => {
+      if (activeNodeForSummary && currentChainId) {
+        regenerateSummaryBtn.textContent = '正在重新生成...';
+        regenerateSummaryBtn.disabled = true;
+        
+        try {
+          // 发送消息给后台脚本，请求重新生成摘要
+          const response = await chrome.runtime.sendMessage({
+            action: "regenerateNodeSummary",
+            node: activeNodeForSummary,
+            chainId: currentChainId
+          });
+          
+          if (response && response.success) {
+            // 更新当前节点的摘要
+            activeNodeForSummary.aiSummary = response.summary;
+            // 刷新显示
+            showFixedSummary(activeNodeForSummary);
+            // 成功提示
+            regenerateSummaryBtn.textContent = '重新生成成功！';
+            setTimeout(() => {
+              regenerateSummaryBtn.textContent = '重新生成摘要';
+            }, 2000);
+          } else {
+            console.error('重新生成摘要失败:', response ? response.error : '未知错误');
+            regenerateSummaryBtn.textContent = '重新生成失败';
+            setTimeout(() => {
+              regenerateSummaryBtn.textContent = '重新生成摘要';
+            }, 2000);
+            alert('重新生成摘要失败: ' + (response ? response.error : '未知错误'));
+          }
+        } catch (error) {
+          console.error('发送重新生成摘要请求时出错:', error);
+          regenerateSummaryBtn.textContent = '请求发送失败';
+          setTimeout(() => {
+            regenerateSummaryBtn.textContent = '重新生成摘要';
+          }, 2000);
+          alert('发送重新生成摘要请求时出错');
+        } finally {
+          regenerateSummaryBtn.disabled = false;
+        }
       }
     });
   }
@@ -640,6 +800,9 @@ function clearReorderSelection() {
  * @param {string} chainId - 思维链 ID
  */
 async function renderVisualization(chainId) {
+  // 清除固定摘要面板
+  clearFixedSummary();
+  
   // 确保在尝试渲染新内容之前，总是先清空旧的可视化内容
   if (container) { // 确保 container 已初始化
     container.innerHTML = ''; 
@@ -770,7 +933,8 @@ async function renderVisualization(chainId) {
       })
       .on('click', function(event, d) {
         if (!editMode && !reorderMode) {
-          // 普通模式：打开节点对应的 URL
+          // 普通模式：显示固定摘要面板，并在点击时打开相应URL
+          showFixedSummary(d);
           window.open(d.url, '_blank');
         } else if (editMode) {
           // 编辑模式：打开笔记编辑对话框
@@ -1423,4 +1587,65 @@ function hideChainSummaryModal() {
   chainSummaryModal.style.display = 'none';
   // chainSummaryContentDisplay.textContent = ''; // 关闭时不清空，以便下次打开时还能看到旧内容（如果未重新生成）
   // chainSummaryGuidanceInput.value = ''; // 指导不清空，方便用户微调
+}
+
+/**
+ * 在固定面板中显示节点的AI摘要
+ * @param {Object} nodeData - 节点数据
+ */
+function showFixedSummary(nodeData) {
+  if (!fixedSummaryPanel || !fixedSummaryTitle || !fixedSummaryContent) {
+    console.error('找不到固定摘要面板元素');
+    return;
+  }
+  
+  // 保存当前活动节点
+  activeNodeForSummary = nodeData;
+  
+  // 设置标题
+  fixedSummaryTitle.textContent = nodeData.title || 'AI 摘要';
+  
+  // 设置内容
+  if (nodeData.aiSummary && nodeData.aiSummary.trim() !== '') {
+    fixedSummaryContent.textContent = nodeData.aiSummary;
+  } else {
+    fixedSummaryContent.textContent = '该节点暂无 AI 摘要。';
+  }
+  
+  // 确定是否显示"重新生成摘要"按钮
+  // 当摘要包含特定错误信息时才显示该按钮
+  if (regenerateSummaryBtn) {
+    const shouldShowRegenerateBtn = 
+      nodeData.aiSummary && 
+      (nodeData.aiSummary.includes('无法生成AI摘要') || 
+       nodeData.aiSummary.includes('API密钥未配置') ||
+       nodeData.aiSummary.includes('获取原始网页内容失败') ||
+       nodeData.aiSummary.includes('生成摘要时出错'));
+    
+    regenerateSummaryBtn.style.display = shouldShowRegenerateBtn ? 'inline-block' : 'none';
+  }
+  
+  // 显示面板
+  fixedSummaryPanel.style.display = 'block';
+}
+
+/**
+ * 清除固定摘要面板内容
+ */
+function clearFixedSummary() {
+  if (fixedSummaryPanel) {
+    fixedSummaryPanel.style.display = 'none';
+  }
+  if (fixedSummaryContent) {
+    fixedSummaryContent.textContent = '';
+  }
+  if (fixedSummaryTitle) {
+    fixedSummaryTitle.textContent = 'AI 摘要';
+  }
+  if (regenerateSummaryBtn) {
+    regenerateSummaryBtn.style.display = 'none';
+  }
+  
+  // 清除当前活动节点
+  activeNodeForSummary = null;
 } 

@@ -3,6 +3,8 @@
  * 处理弹出窗口的UI交互和数据展示
  */
 
+import { storageService } from './js/storage.js';
+
 // 获取DOM元素
 const currentTitle = document.getElementById('current-title');
 const currentUrl = document.getElementById('current-url');
@@ -10,6 +12,7 @@ const captureBtn = document.getElementById('captureBtn');
 const recentChains = document.getElementById('recent-chains');
 const viewAllBtn = document.getElementById('viewAllBtn');
 const noteInput = document.getElementById('noteInput');
+const languageSelect = document.getElementById('language-select');
 
 // 页面加载时获取当前标签页信息和最近的思维链
 document.addEventListener('DOMContentLoaded', () => {
@@ -24,7 +27,33 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // 加载最近的思维链
   loadRecentChains();
+  
+  // 加载用户设置
+  loadAndApplySettings();
 });
+
+/**
+ * 加载并应用用户设置
+ */
+async function loadAndApplySettings() {
+  try {
+    const settings = await storageService.getSettings();
+    
+    // 设置语言选择
+    if (settings.aiLanguage) {
+      languageSelect.value = settings.aiLanguage;
+    }
+    
+    // 监听语言选择变化
+    languageSelect.addEventListener('change', async () => {
+      const selectedLanguage = languageSelect.value;
+      await storageService.updateSetting('aiLanguage', selectedLanguage);
+      console.log(`语言偏好已更新为: ${selectedLanguage}`);
+    });
+  } catch (error) {
+    console.error('加载设置失败:', error);
+  }
+}
 
 /**
  * 安全地发送消息并处理可能的错误

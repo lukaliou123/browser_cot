@@ -8,7 +8,13 @@ import { generateId, createThoughtChain } from './models.js';
 // 存储键名
 const STORAGE_KEYS = {
   THOUGHT_CHAINS: 'thoughtChains',
-  ACTIVE_CHAIN_ID: 'activeChainId'
+  ACTIVE_CHAIN_ID: 'activeChainId',
+  SETTINGS: 'app_settings'
+};
+
+// 默认设置
+const DEFAULT_SETTINGS = {
+  aiLanguage: 'zh-CN' // 默认使用中文
 };
 
 /**
@@ -30,6 +36,13 @@ class StorageService {
       });
     }
     
+    // 初始化应用设置
+    if (!data[STORAGE_KEYS.SETTINGS]) {
+      await this.setData({
+        [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS
+      });
+    }
+    
     return true;
   }
   
@@ -39,7 +52,11 @@ class StorageService {
    */
   getData() {
     return new Promise((resolve) => {
-      chrome.storage.local.get([STORAGE_KEYS.THOUGHT_CHAINS, STORAGE_KEYS.ACTIVE_CHAIN_ID], (result) => {
+      chrome.storage.local.get([
+        STORAGE_KEYS.THOUGHT_CHAINS, 
+        STORAGE_KEYS.ACTIVE_CHAIN_ID,
+        STORAGE_KEYS.SETTINGS
+      ], (result) => {
         resolve(result);
       });
     });
@@ -56,6 +73,28 @@ class StorageService {
         resolve(true);
       });
     });
+  }
+  
+  /**
+   * 获取用户设置
+   * @returns {Promise<Object>} 用户设置
+   */
+  async getSettings() {
+    const data = await this.getData();
+    return data[STORAGE_KEYS.SETTINGS] || DEFAULT_SETTINGS;
+  }
+  
+  /**
+   * 更新单个设置项
+   * @param {string} key - 设置键名
+   * @param {*} value - 设置值
+   * @returns {Promise<boolean>} 操作结果
+   */
+  async updateSetting(key, value) {
+    const settings = await this.getSettings();
+    settings[key] = value;
+    await this.setData({ [STORAGE_KEYS.SETTINGS]: settings });
+    return true;
   }
   
   /**
